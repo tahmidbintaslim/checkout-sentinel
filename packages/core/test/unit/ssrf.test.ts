@@ -51,6 +51,12 @@ describe('classifyAddress', () => {
     ['0x7f.1', 'loopback', '127.0.0.1'],
     ['0177.0.0.1', 'loopback', '127.0.0.1'],
     ['0177.0.0.01', 'loopback', '127.0.0.1'],
+    // Leading zeros do not count towards a part's length.
+    ['0x0000000000007f.0.0.1', 'loopback', '127.0.0.1'],
+    ['0000000000000177.0.0.1', 'loopback', '127.0.0.1'],
+    ['00000000000000000000000000000000017700000001', 'loopback', '127.0.0.1'],
+    ['0x00000000000000a9fea9fe', 'link-local', '169.254.169.254'],
+    [`0x${'0'.repeat(64)}7f.1`, 'loopback', '127.0.0.1'],
     ['127.1', 'loopback', '127.0.0.1'],
     ['127.0.1', 'loopback', '127.0.0.1'],
     ['127.0.0.1.', 'loopback', '127.0.0.1'],
@@ -171,6 +177,42 @@ describe('classifyAddress', () => {
     expect(parseIPv4('4294967296')).toBeNull();
     expect(parseIPv4('1.2.3.256')).toBeNull();
     expect(parseIPv4('99999999999999999999')).toBeNull();
+    expect(parseIPv4('0x0000000000000100000000')).toBeNull();
+    expect(parseIPv4('0000000000000000040000000000')).toBeNull();
+  });
+
+  it('reads every host the WHATWG URL parser reads as IPv4 to the same address', () => {
+    const inputs = [
+      '127.0.0.1',
+      '2130706433',
+      '0x7f.1',
+      '0177.0.0.1',
+      '0x0000000000007f.0.0.1',
+      '0000000000000177.0.0.1',
+      '0x00000000000000a9fea9fe',
+      '00000000000000000000000000000000017700000001',
+      `0x${'0'.repeat(64)}7f.1`,
+      '0x.0x.0x.0x',
+      '0x0000000000000100000000',
+      '4294967296',
+      '1.2.3.256',
+      '08.0.0.1',
+      '1.2.3.com',
+      'example.com',
+    ];
+    for (const input of inputs) {
+      let whatwg: string | null;
+      try {
+        const hostname = new URL(`http://${input}/`).hostname;
+        whatwg = /^[\d.]+$/.test(hostname) ? hostname : null;
+      } catch {
+        whatwg = null;
+      }
+      expect({ input, address: classifyAddress(input)?.address ?? null }).toEqual({
+        input,
+        address: whatwg,
+      });
+    }
   });
 });
 
@@ -242,6 +284,21 @@ describe('TargetGuard.checkUrl', () => {
     expect(await guard.checkUrl(url)).toMatchObject({ allowed: false, rule: 'address' });
     expect(publicDns.calls.length).toBe(before);
   });
+
+  it.each([
+    ['0x0000000000007f.0.0.1', '127.0.0.1 is a loopback address'],
+    ['0000000000000177.0.0.1', '127.0.0.1 is a loopback address'],
+    ['0x00000000000000a9fea9fe', '169.254.169.254 is the cloud metadata address'],
+  ])(
+    'checkEndpoint refuses the zero-padded host %s without a URL parser in front',
+    (host, reason) => {
+      expect(guard.checkEndpoint(host, 80)).toMatchObject({
+        allowed: false,
+        rule: 'address',
+        reason: expect.stringContaining(reason),
+      });
+    },
+  );
 
   it('refuses names that resolve to a private address', async () => {
     expect(await guard.checkUrl('https://internal.example/hook', 'webhook')).toEqual({

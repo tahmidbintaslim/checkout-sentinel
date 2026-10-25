@@ -87,9 +87,12 @@ function parseIPv4Part(part: string): number | null {
   if (digits === '') return 0;
   const pattern = radix === 16 ? /^[0-9a-f]+$/i : radix === 8 ? /^[0-7]+$/ : /^[0-9]+$/;
   if (!pattern.test(digits)) return null;
-  // Longer inputs overflow every IPv4 part anyway; this keeps parseInt in exact range.
-  if (digits.length > 12) return Number.POSITIVE_INFINITY;
-  return Number.parseInt(digits, radix);
+  // The URL parser reads "0x00000000007f" as 0x7f, so padding must not count towards the
+  // length. More than 12 significant digits overflow every IPv4 part, and capping there
+  // keeps parseInt in exact range.
+  const significant = digits.replace(/^0+(?=.)/, '');
+  if (significant.length > 12) return Number.POSITIVE_INFINITY;
+  return Number.parseInt(significant, radix);
 }
 
 /** Parses an IPv6 address, with or without brackets; a zone id ("%eth0") is ignored. */
