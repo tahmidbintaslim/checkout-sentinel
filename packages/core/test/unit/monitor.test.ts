@@ -73,3 +73,12 @@ describe('resolveDevices', () => {
     expect(resolveDevices(['mobile', 'mobile'])).toEqual(['mobile']);
   });
 });
+
+describe('MonitorPatchSchema', () => {
+  it('keeps only the fields that were sent', async () => {
+    const { MonitorPatchSchema } = await import('@checkout-sentinel/core');
+    expect(MonitorPatchSchema.parse({ enabled: false })).toEqual({ enabled: false });
+    expect(MonitorPatchSchema.safeParse({ schedule: '* * * * *' }).success).toBe(false);
+    expect(MonitorPatchSchema.safeParse({ unknownField: 1 }).success).toBe(false);
+  });
+});

@@ -66,22 +66,52 @@ export const TimeoutsSchema = z.object({
 });
 export type Timeouts = z.infer<typeof TimeoutsSchema>;
 
-export const MonitorSpecSchema = z.object({
+const fields = {
   name: z.string().trim().min(1).max(120),
   url: HttpUrlSchema,
-  platform: RequestedPlatformSchema.default('auto'),
-  devices: z.array(DeviceNameSchema).min(1).max(2).default(['desktop', 'mobile']),
-  schedule: CronScheduleSchema.default('*/15 * * * *'),
-  timezone: z.string().default('UTC'),
+  platform: RequestedPlatformSchema,
+  devices: z.array(DeviceNameSchema).min(1).max(2),
+  schedule: CronScheduleSchema,
+  timezone: z.string().min(1),
   /** A passing step slower than this raises a slow-step alert. */
-  slowStepMs: z.number().int().min(100).max(120_000).default(8_000),
+  slowStepMs: z.number().int().min(100).max(120_000),
   /** Consecutive failed runs before a failure alert; 2 filters one-off network blips. */
-  alertAfterFailures: z.number().int().min(1).max(10).default(2),
-  alerts: z.array(AlertChannelSchema).max(10).default([]),
-  enabled: z.boolean().default(true),
+  alertAfterFailures: z.number().int().min(1).max(10),
+  alerts: z.array(AlertChannelSchema).max(10),
+  enabled: z.boolean(),
+};
+
+export const MonitorSpecSchema = z.object({
+  name: fields.name,
+  url: fields.url,
+  platform: fields.platform.default('auto'),
+  devices: fields.devices.default(['desktop', 'mobile']),
+  schedule: fields.schedule.default('*/15 * * * *'),
+  timezone: fields.timezone.default('UTC'),
+  slowStepMs: fields.slowStepMs.default(8_000),
+  alertAfterFailures: fields.alertAfterFailures.default(2),
+  alerts: fields.alerts.default([]),
+  enabled: fields.enabled.default(true),
 });
 export type MonitorSpec = z.infer<typeof MonitorSpecSchema>;
 export type MonitorSpecInput = z.input<typeof MonitorSpecSchema>;
+
+/** Partial update: only the fields sent change. No defaults, unlike MonitorSpecSchema.partial(). */
+export const MonitorPatchSchema = z
+  .object({
+    name: fields.name.optional(),
+    url: fields.url.optional(),
+    platform: fields.platform.optional(),
+    devices: fields.devices.optional(),
+    schedule: fields.schedule.optional(),
+    timezone: fields.timezone.optional(),
+    slowStepMs: fields.slowStepMs.optional(),
+    alertAfterFailures: fields.alertAfterFailures.optional(),
+    alerts: fields.alerts.optional(),
+    enabled: fields.enabled.optional(),
+  })
+  .strict();
+export type MonitorPatch = z.infer<typeof MonitorPatchSchema>;
 
 export const MonitorsFileSchema = z.object({
   version: z.literal(1),

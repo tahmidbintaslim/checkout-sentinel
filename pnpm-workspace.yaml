@@ -8,3 +8,5 @@ allowBuilds:
   esbuild: true
   # Optional native speedup for BullMQ's msgpackr; the pure JS path is used without it.
   msgpackr-extract: false
+  # Install-time analytics in swagger-ui-dist; not needed.
+  '@scarf/scarf': false
