@@ -1,0 +1,33 @@
+{
+  "name": "@checkout-sentinel/cli",
+  "version": "0.1.0",
+  "description": "Command line runner for checkout-sentinel journeys.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "checkout-sentinel": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "@checkout-sentinel/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@checkout-sentinel/core": "workspace:*",
+    "commander": "^15.0.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@checkout-sentinel/fixtures": "workspace:*"
+  }
+}
