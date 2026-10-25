@@ -344,6 +344,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
 - Retention deletes artifact files only from the disk of the worker that runs the pass. Workers
   need one shared artifacts volume (the compose stack has one) for old screenshots and traces to
   be removed.
+- `ARTIFACTS_DIR` must belong to one deployment. Two deployments with separate databases must
+  not share it, and it should not be a directory other software uses, such as `/tmp`. Retention
+  removes only directories the worker marked as its own, but it treats every marked directory
+  of a monitor missing from its database as a deleted monitor's.
 
 ## Roadmap
 

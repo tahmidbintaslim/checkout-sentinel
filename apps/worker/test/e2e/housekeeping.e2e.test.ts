@@ -35,10 +35,12 @@ import {
   DEFAULT_STALE_AFTER_MS,
   HOUSEKEEPING_LOCK_KEY,
   Housekeeping,
+  MONITOR_DIR_MARKER,
   StoreLock,
   WorkerMetrics,
   housekeepingLock,
   loadConfig,
+  markMonitorArtifactsDir,
   processJourneyJob,
   startWorker,
   workerLostMessage,
@@ -105,6 +107,9 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
   beforeEach(async () => {
     await truncateAll(services.databaseUrl);
     await redis.del(HOUSEKEEPING_LOCK_KEY);
+    // Journeys in earlier tests left marked directories for monitors the truncate deleted.
+    await rm(artifacts, { recursive: true, force: true });
+    await mkdir(artifacts);
   });
 
   afterAll(async () => {
@@ -319,9 +324,13 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     ] as const) {
       await seedArtifacts(monitorId, runId);
     }
-    // A monitor deleted through the API leaves its directory; other names are not ours.
+    // A monitor deleted through the API leaves its directory, marked by the worker that ran it.
+    // A directory without the marker is not ours, even with a monitor-like name.
     const deletedMonitor = randomUUID();
     await seedArtifacts(deletedMonitor, randomUUID());
+    await markMonitorArtifactsDir(path.join(artifacts, deletedMonitor));
+    const foreign = randomUUID();
+    await seedArtifacts(foreign, randomUUID());
     await seedArtifacts('notes');
 
     const { pass, metrics } = housekeeping({ batchSize: 2 });
@@ -331,7 +340,7 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     expect(await runIds(a.id)).toEqual([a2, a4, a6, a7].sort());
     expect(await runIds(b.id)).toEqual([b2]);
     expect((await deliveries.listForMonitor(a.id)).map((d) => d.id)).toEqual([keptDelivery]);
-    expect((await readdir(artifacts)).sort()).toEqual([a.id, b.id, 'notes'].sort());
+    expect((await readdir(artifacts)).sort()).toEqual([a.id, b.id, foreign, 'notes'].sort());
     expect(await readdir(path.join(artifacts, a.id))).toEqual([a2]);
     expect(await readdir(path.join(artifacts, b.id))).toEqual([b2]);
     const text = await metrics.registry.metrics();
@@ -341,6 +350,26 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     // Nothing left to delete: the kept runs stay on the next pass too.
     expect(await pass.runOnce()).toEqual({ swept: 0, deletedRuns: 0, deletedArtifactDirs: 0 });
     expect(await runIds(a.id)).toEqual([a2, a4, a6, a7].sort());
+  });
+
+  it('removes the files of a monitor a worker ran once the monitor is deleted, and nothing it did not create', async () => {
+    const monitor = await createMonitor('Deleted later', healthy.productUrl);
+    expect(await jobOutcome(await scheduler.enqueueNow(monitor.id))).toMatchObject({
+      outcome: 'completed',
+      status: 'passed',
+    });
+    const dir = path.join(artifacts, monitor.id);
+    expect(await readdir(dir)).toContain(MONITOR_DIR_MARKER);
+    // ARTIFACTS_DIR shared with something else: a directory named like a monitor id.
+    const foreign = randomUUID();
+    await seedArtifacts(foreign, 'notes');
+
+    const { pass } = housekeeping();
+    expect(await pass.runOnce()).toEqual({ swept: 0, deletedRuns: 0, deletedArtifactDirs: 0 });
+    expect(await monitors.delete(monitor.id)).toBe(true);
+    expect(await pass.runOnce()).toEqual({ swept: 0, deletedRuns: 0, deletedArtifactDirs: 1 });
+    expect(await readdir(artifacts)).toEqual([foreign]);
+    expect(await readdir(path.join(artifacts, foreign, 'notes'))).toEqual(['mobile-trace.zip']);
   });
 
   it('never deletes a running row; the sweep in the same pass finishes it first', async () => {

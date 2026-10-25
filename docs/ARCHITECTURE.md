@@ -240,10 +240,18 @@ the next pass. `0` keeps run history forever. A run's alert deliveries are delet
 After deleting rows, the pass removes each deleted run's artifact directory
 (`<ARTIFACTS_DIR>/<monitorId>/<runId>/`) and the directories of monitors that no longer exist
 (deleting a monitor through the API deletes its runs at once). Only directories named with a UUID
-are touched. Rows go first: if the worker stops in between, files stay behind, never rows that
-point at missing files. Files are removed from the disk of the worker that runs the pass, so
-workers need one shared artifacts volume, as in the compose stack, for retention to reach every
-file.
+are touched, and a monitor's directory only when it holds the marker file
+`.checkout-sentinel-monitor`, which the worker writes before each run. A directory the worker did
+not create is left alone even when its name looks like a monitor id. Directories of monitors
+deleted before the marker existed have none and stay until removed by hand. Rows go first: if the
+worker stops in between, files stay behind, never rows that point at missing files. Files are
+removed from the disk of the worker that runs the pass, so workers need one shared artifacts
+volume, as in the compose stack, for retention to reach every file.
+
+`ARTIFACTS_DIR` must belong to one deployment. All its workers share it, but a second deployment
+with its own database must not use the same path: its monitors are not in this database, so each
+deployment would remove the other's marked directories as deleted monitors. Do not use a
+directory other software writes to, such as `/tmp`, either.
 
 Two indexes keep a pass cheap: a partial index on `runs (started_at) where status = 'running'`
 for the sweep, and `runs (started_at)` for retention.

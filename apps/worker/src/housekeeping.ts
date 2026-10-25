@@ -5,6 +5,7 @@ import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { DeviceNameSchema, STEP_NAMES } from '@checkout-sentinel/core';
 import type { DeletedRun, LostRun } from '@checkout-sentinel/db';
+import { hasMonitorDirMarker } from './artifacts.js';
 import type { WorkerMetrics } from './metrics.js';
 import { acquireRedisLock, type HeldLock } from './store-lock.js';
 
@@ -233,7 +234,11 @@ export class Housekeeping {
     await this.removeDeletedMonitorDirs(report);
   }
 
-  /** Monitors deleted through the API take their runs with them (cascade); this takes their files. */
+  /**
+   * Monitors deleted through the API take their runs with them (cascade); this takes their
+   * files. Only directories that carry a worker's marker are removed: ARTIFACTS_DIR may hold
+   * other things, including directories whose names look like monitor ids.
+   */
   private async removeDeletedMonitorDirs(report: HousekeepingReport): Promise<void> {
     let entries: Dirent[];
     try {
@@ -248,9 +253,18 @@ export class Housekeeping {
     // Listed after reading the directory, so a monitor created in between is known here.
     const known = new Set(await this.deps.monitors.listIds());
     for (const monitorId of dirs) {
-      if (!known.has(monitorId) && (await this.removeArtifactDir(monitorId))) {
-        report.deletedArtifactDirs += 1;
-      }
+      if (known.has(monitorId) || !(await this.isMonitorDir(monitorId))) continue;
+      if (await this.removeArtifactDir(monitorId)) report.deletedArtifactDirs += 1;
+    }
+  }
+
+  private async isMonitorDir(monitorId: string): Promise<boolean> {
+    try {
+      return await hasMonitorDirMarker(path.join(this.options.artifactsDir, monitorId));
+    } catch (error) {
+      this.deps.metrics.housekeepingFailures.inc({ task: 'artifacts' });
+      this.deps.logger.warn({ err: error, monitorId }, 'could not check an artifact directory');
+      return false;
     }
   }
 

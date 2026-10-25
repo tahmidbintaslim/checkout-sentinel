@@ -1,6 +1,7 @@
 export * from './alerting/deliver.js';
 export * from './alerting/payload.js';
 export * from './alerting/state-machine.js';
+export * from './artifacts.js';
 export * from './browser-pool.js';
 export * from './config.js';
 export * from './housekeeping.js';

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,9 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_STALE_AFTER_MS,
   Housekeeping,
+  MONITOR_DIR_MARKER,
   WorkerMetrics,
   createHousekeepingRedis,
   housekeepingLock,
+  markMonitorArtifactsDir,
   staleRunThreshold,
   workerLostMessage,
   type HousekeepingDeps,
@@ -167,22 +169,30 @@ describe('Housekeeping pass', () => {
   it('removes the artifacts of deleted runs and of monitors that no longer exist, nothing else', async () => {
     const kept = randomUUID();
     const gone = randomUUID();
+    // Named like a monitor but without a worker's marker: another deployment's, or not ours.
+    const foreign = randomUUID();
     const deletedRun = { id: randomUUID(), monitorId: kept };
     const keptRun = randomUUID();
     for (const dir of [
       path.join(artifacts, kept, deletedRun.id),
       path.join(artifacts, kept, keptRun),
       path.join(artifacts, gone, randomUUID()),
+      path.join(artifacts, foreign, 'notes'),
       path.join(artifacts, 'not-a-monitor'),
     ]) {
       await mkdir(dir, { recursive: true });
       await writeFile(path.join(dir, 'mobile-trace.zip'), 'trace');
     }
+    await markMonitorArtifactsDir(path.join(artifacts, kept));
+    await markMonitorArtifactsDir(path.join(artifacts, gone));
     const { deps } = fakes({ expired: [deletedRun], monitorIds: [kept] });
     const report = await new Housekeeping(deps, options()).runOnce();
     expect(report).toMatchObject({ deletedRuns: 1, deletedArtifactDirs: 2 });
-    expect((await readdir(artifacts)).sort()).toEqual([kept, 'not-a-monitor'].sort());
-    expect(await readdir(path.join(artifacts, kept))).toEqual([keptRun]);
+    expect((await readdir(artifacts)).sort()).toEqual([kept, foreign, 'not-a-monitor'].sort());
+    expect((await readdir(path.join(artifacts, kept))).sort()).toEqual(
+      [MONITOR_DIR_MARKER, keptRun].sort(),
+    );
+    expect(await readdir(path.join(artifacts, foreign, 'notes'))).toEqual(['mobile-trace.zip']);
     expect(await deps.metrics.registry.metrics()).toContain(
       'checkout_sentinel_artifact_dirs_deleted_total 2',
     );
@@ -283,6 +293,23 @@ async function closedPort(): Promise<number> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return port;
 }
+
+describe('markMonitorArtifactsDir', () => {
+  it('creates the directory with its marker and keeps an existing marker', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'checkout-sentinel-marker-'));
+    try {
+      const dir = path.join(root, randomUUID());
+      await markMonitorArtifactsDir(dir);
+      const marker = path.join(dir, MONITOR_DIR_MARKER);
+      expect(await readFile(marker, 'utf8')).toContain('checkout-sentinel');
+      await writeFile(marker, 'edited');
+      await markMonitorArtifactsDir(dir);
+      expect(await readFile(marker, 'utf8')).toBe('edited');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('Housekeeping with Redis unreachable', () => {
   it('fails each pass quickly and counts it, instead of waiting for Redis', async () => {

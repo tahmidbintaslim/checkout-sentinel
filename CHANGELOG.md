@@ -40,7 +40,10 @@ Result schema version: 1 (unchanged).
 - Retention in the same pass. Runs older than `RUN_RETENTION_DAYS` (default 30; `0` keeps
   everything) are deleted in batches with their alert deliveries and artifact directories. Each
   monitor keeps its latest run, the run its status points at and the run behind its latest alert
-  of each kind. Artifact directories of deleted monitors are removed too.
+  of each kind. Artifact directories of deleted monitors are removed too, but only those that
+  hold the marker file `.checkout-sentinel-monitor`, which the worker now writes into
+  `<ARTIFACTS_DIR>/<monitorId>/` before each run. Directories of monitors deleted before
+  upgrading have no marker and stay. `ARTIFACTS_DIR` must belong to one deployment.
 - Each run records the BullMQ job it is an attempt of. When BullMQ runs a job again (after a
   stall or an exception), the new attempt marks the job's earlier runs that are still `running`
   as `error` (`Worker lost: BullMQ ran the job again before this run finished`) when it starts.

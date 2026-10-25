@@ -20,6 +20,7 @@ import type {
 import { JourneyJobSchema, type JourneyJob } from '@checkout-sentinel/jobs';
 import { deliverAlert } from './alerting/deliver.js';
 import { evaluateTransition, type AlertDecision } from './alerting/state-machine.js';
+import { markMonitorArtifactsDir } from './artifacts.js';
 import type { BrowserPool } from './browser-pool.js';
 import type { WorkerMetrics } from './metrics.js';
 import type { StoreLock } from './store-lock.js';
@@ -169,6 +170,12 @@ export async function processJourneyJob(
     );
   }
   try {
+    const artifactsDir = path.join(deps.config.artifactsDir, monitor.id);
+    // Without the marker the directory is only kept after its monitor is deleted, so a failure
+    // to write it must not fail the run.
+    await markMonitorArtifactsDir(artifactsDir).catch((error: unknown) =>
+      log.warn({ err: error }, 'could not mark the artifacts directory'),
+    );
     const result = await (deps.run ?? runJourneys)({
       url: monitor.url,
       platform: monitor.platform,
@@ -177,7 +184,7 @@ export async function processJourneyJob(
       runId: run.id,
       browser: await deps.browsers.get(),
       targetGuard: deps.targetGuard,
-      artifactsDir: path.join(deps.config.artifactsDir, monitor.id),
+      artifactsDir,
       timeouts: {
         navigationMs: deps.config.navigationTimeoutMs,
         stepMs: deps.config.stepTimeoutMs,
