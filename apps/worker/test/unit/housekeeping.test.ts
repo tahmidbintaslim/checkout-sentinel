@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pino } from 'pino';
@@ -8,6 +9,8 @@ import {
   DEFAULT_STALE_AFTER_MS,
   Housekeeping,
   WorkerMetrics,
+  createHousekeepingRedis,
+  housekeepingLock,
   staleRunThreshold,
   workerLostMessage,
   type HousekeepingDeps,
@@ -269,5 +272,51 @@ describe('Housekeeping pass', () => {
     expect({ sweeps, lockAttempts }).toEqual({ sweeps: 2, lockAttempts: 2 });
     finishSweep();
     await housekeeping.stop();
+  });
+});
+
+/** A local port that nothing listens on, so connections to it are refused. */
+async function closedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+describe('Housekeeping with Redis unreachable', () => {
+  it('fails each pass quickly and counts it, instead of waiting for Redis', async () => {
+    // A short command timeout: ioredis backs off up to 5 s between reconnect attempts, so the
+    // max-retries error alone can take several seconds once Redis has been gone a while.
+    const redis = createHousekeepingRedis(
+      `redis://127.0.0.1:${await closedPort()}`,
+      pino({ level: 'silent' }),
+      500,
+    );
+    const { deps, calls } = fakes();
+    const housekeeping = new Housekeeping(
+      { ...deps, lock: housekeepingLock(redis, 60_000) },
+      { staleAfterMs: 900_000, retentionDays: 0, artifactsDir: tmpdir(), intervalMs: 100 },
+    );
+    try {
+      await expect(housekeeping.runOnce()).rejects.toThrow(
+        /max retries per request|Command timed out/,
+      );
+
+      // On the timer, every tick gets a pass of its own: none is left hanging.
+      housekeeping.start();
+      const deadline = Date.now() + 4_000;
+      let failures = 0;
+      while (failures < 2 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+        const metric = await deps.metrics.housekeepingFailures.get();
+        failures = metric.values.find((v) => v.labels.task === 'pass')?.value ?? 0;
+      }
+      expect(failures).toBeGreaterThanOrEqual(2);
+      expect(calls.markLost).toEqual([]);
+    } finally {
+      await housekeeping.stop();
+      redis.disconnect();
+    }
   });
 });

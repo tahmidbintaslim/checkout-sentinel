@@ -18,7 +18,12 @@ import {
 } from '@checkout-sentinel/jobs';
 import { BrowserPool } from './browser-pool.js';
 import type { WorkerConfig } from './config.js';
-import { Housekeeping, housekeepingLock, staleRunThreshold } from './housekeeping.js';
+import {
+  Housekeeping,
+  createHousekeepingRedis,
+  housekeepingLock,
+  staleRunThreshold,
+} from './housekeeping.js';
 import { startMetricsServer } from './http.js';
 import { WorkerMetrics } from './metrics.js';
 import { processJourneyJob, type JobOutcome } from './processor.js';
@@ -110,13 +115,16 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
     navigationTimeoutMs: config.NAVIGATION_TIMEOUT_MS,
     stepTimeoutMs: config.STEP_TIMEOUT_MS,
   });
+  // Not the shared connection: the lock's commands must fail while Redis is unreachable.
+  const housekeepingRedis =
+    config.HOUSEKEEPING_INTERVAL_MS > 0 ? createHousekeepingRedis(config.REDIS_URL, log) : null;
   const housekeeping =
-    config.HOUSEKEEPING_INTERVAL_MS > 0
+    housekeepingRedis !== null
       ? new Housekeeping(
           {
             runs,
             monitors,
-            lock: housekeepingLock(redis, HOUSEKEEPING_LOCK_TTL_MS),
+            lock: housekeepingLock(housekeepingRedis, HOUSEKEEPING_LOCK_TTL_MS),
             metrics,
             logger: log,
           },
@@ -169,6 +177,7 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
       await scheduler.close();
       redis.disconnect();
       workerConnection.disconnect();
+      housekeepingRedis?.disconnect();
       await db.close();
       await new Promise<void>((resolve) =>
         metricsServer ? metricsServer.close(() => resolve()) : resolve(),

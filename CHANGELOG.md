@@ -35,7 +35,8 @@ Result schema version: 1 (unchanged).
   (default 15 minutes, raised when the timeouts allow longer runs) are marked `error` with
   `Worker lost: ...`. Health, failure counts and alerts are not affected. It runs when a worker
   starts and every `HOUSEKEEPING_INTERVAL_MS` (default 5 minutes; `0` turns it off on that
-  worker), under a Redis lock so one pass runs at a time.
+  worker), under a Redis lock so one pass runs at a time. The lock uses its own Redis
+  connection, so with Redis down a pass fails and is counted instead of waiting.
 - Retention in the same pass. Runs older than `RUN_RETENTION_DAYS` (default 30; `0` keeps
   everything) are deleted in batches with their alert deliveries and artifact directories. Each
   monitor keeps its latest run, the run its status points at and the run behind its latest alert

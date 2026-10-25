@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
-import type { Redis } from 'ioredis';
+import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { DeviceNameSchema, STEP_NAMES } from '@checkout-sentinel/core';
 import type { DeletedRun, LostRun } from '@checkout-sentinel/db';
@@ -49,6 +49,26 @@ export function workerLostMessage(staleAfterMs: number): string {
 }
 
 export const HOUSEKEEPING_LOCK_KEY = 'checkout-sentinel:housekeeping';
+
+/**
+ * The connection for the housekeeping lock. BullMQ's connections (createRedis) hold a command
+ * until Redis is back, so a pass waiting on one would hang without being counted, and every
+ * later tick would find it still running. On this one a command fails after commandTimeoutMs
+ * at most, sooner when two reconnect attempts fail while it waits; the pass fails, is counted,
+ * and the next tick tries again.
+ */
+export function createHousekeepingRedis(
+  url: string,
+  logger: Logger,
+  commandTimeoutMs = 10_000,
+): Redis {
+  const redis = new Redis(url, { maxRetriesPerRequest: 1, commandTimeout: commandTimeoutMs });
+  // Every failed reconnect emits an error; the failed pass is what gets reported.
+  redis.on('error', (error: unknown) =>
+    logger.debug({ err: error }, 'housekeeping Redis connection error'),
+  );
+  return redis;
+}
 
 /** One pass at a time across all workers. The TTL frees the lock if its holder dies. */
 export function housekeepingLock(redis: Redis, ttlMs: number, key = HOUSEKEEPING_LOCK_KEY) {
@@ -161,7 +181,7 @@ export class Housekeeping {
     this.current = this.runOnce()
       .then(() => undefined)
       .catch((error: unknown) => {
-        // Only taking the lock can throw here (Redis down); the tasks catch their own errors.
+        // Only the lock can throw here (Redis unreachable); the tasks catch their own errors.
         this.deps.metrics.housekeepingFailures.inc({ task: 'pass' });
         this.deps.logger.error({ err: error }, 'housekeeping pass failed');
       })

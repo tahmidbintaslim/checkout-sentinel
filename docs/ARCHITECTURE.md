@@ -167,7 +167,9 @@ alert.
 Each worker tries a housekeeping pass when it starts and then every `HOUSEKEEPING_INTERVAL_MS`
 (default 5 minutes; `0` turns it off on that worker). A Redis lock (`checkout-sentinel:housekeeping`,
 `SET NX PX` with a 5 minute TTL and a compare-and-delete release) lets one pass run at a time
-across all workers; a worker that finds the lock taken skips that pass. A pass runs two tasks in
+across all workers; a worker that finds the lock taken skips that pass. The lock has a Redis
+connection of its own on which a command fails within 10 seconds while Redis is unreachable, so
+a pass fails and is counted instead of waiting for Redis to come back. A pass runs two tasks in
 this order. A failure in one is logged and counted, and does not stop the other. The code is in
 `apps/worker/src/housekeeping.ts` and the queries in `RunRepository`.
 
@@ -312,7 +314,7 @@ flowchart LR
 | Exception in the worker (database down, bug)     | The run is marked `error` if it is still `running`, the job throws, BullMQ retries once after 30 seconds (exponential backoff). The retry is a new run; if marking the old run failed too, the retry marks it `Worker lost` when it starts.                                                                       |
 | Worker killed mid-job                            | BullMQ's lock expires and the job is picked up again as stalled, as a new run, which marks the orphaned row `error` (`Worker lost: ...`) when it starts. If BullMQ does not run the job again, the sweep marks the row `RUN_STALE_AFTER_MS` after it started. Health and alerts are not affected.                 |
 | Worker paused, finishes after a retry or sweep   | The late result is discarded: the run stays `Worker lost`, no state change, no alert. If BullMQ ran the job again, it refuses the late completion and keeps the new attempt's outcome; job outcome `discarded` appears only when the paused worker still held the job. The new attempt's run is applied as usual. |
-| Housekeeping pass fails (database or Redis down) | Logged and counted in `checkout_sentinel_housekeeping_failures_total`; the next pass tries again. If a worker dies mid-pass, the lock frees itself after its 5 minute TTL.                                                                                                                                        |
+| Housekeeping pass fails (database or Redis down) | Logged and counted in `checkout_sentinel_housekeeping_failures_total`; the next pass tries again. With Redis unreachable the lock's command fails within 10 seconds, so the pass does not hang. If a worker dies mid-pass, the lock frees itself after its 5 minute TTL.                                          |
 | Store busy (another run holds its lock)          | Job moved back to delayed with 15 to 30 seconds of jitter. Not counted as an attempt.                                                                                                                                                                                                                             |
 | Alert endpoint down                              | Two attempts per delivery (retrying network errors and 5xx, not 4xx), then recorded as `failed` in `alert_deliveries` and counted in metrics. The run itself is not retried.                                                                                                                                      |
 | Job retried after alerts were sent               | The unique delivery key makes the second send a no-op.                                                                                                                                                                                                                                                            |
