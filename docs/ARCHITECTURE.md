@@ -125,10 +125,9 @@ sequenceDiagram
   alt store busy
     W->>R: moveToDelayed(now + 15-30s)
   else lock acquired
-    W->>P: insert run (running)
+    W->>P: insert run (running), mark earlier running attempts of the job lost
     W->>S: Chromium context per device: product, add to cart, cart, checkout
-    W->>P: update run with RunResult
-    W->>P: SELECT monitor_state FOR UPDATE, apply transition
+    W->>P: one transaction: SELECT monitor_state FOR UPDATE, store RunResult if the run is still running, apply transition
     opt state changed
       W->>P: claim alert_deliveries row
       W->>H: POST alert
