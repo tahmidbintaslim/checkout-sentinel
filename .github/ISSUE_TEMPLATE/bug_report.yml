@@ -1,0 +1,45 @@
+name: Bug report
+description: A journey passes or fails when it should not, or something crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not paste webhook URLs, API tokens or store passwords. For security issues, see SECURITY.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: checkout-sentinel version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [core engine, CLI, API, worker, docker compose, docs]
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Store platform
+      options: [Shopify, WooCommerce, other or unknown, not relevant]
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The command or API call you ran. A public product URL helps if you are allowed to share it.
+      render: shell
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: CLI output or the result JSON (remove anything private).
+      render: text
