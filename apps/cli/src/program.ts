@@ -3,6 +3,8 @@ import path from 'node:path';
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import {
   ExitCode,
+  STRICT_TARGET_POLICY,
+  TargetGuard,
   VERSION,
   exitCodeFor,
   runJourneys,
@@ -43,6 +45,26 @@ interface RunFlags {
   navigationTimeout?: number;
   stepTimeout?: number;
   failOnPageErrors?: boolean;
+  blockPrivateTargets?: boolean;
+}
+
+interface CheckFlags {
+  config: string;
+  json?: boolean;
+  out: string;
+  blockPrivateTargets?: boolean;
+}
+
+/**
+ * The CLI runs on the user's own machine against URLs the user typed, so by default it may
+ * reach private and local addresses (local fixture stores, staging behind a VPN). The flag
+ * applies the same SSRF guard as the API and worker, for configs written by someone else.
+ */
+const BLOCK_PRIVATE_HELP =
+  'refuse private, loopback, link-local and metadata addresses (and redirects to them), as the API and worker do';
+
+function guardFor(block: boolean | undefined): { targetGuard?: TargetGuard } {
+  return block ? { targetGuard: new TargetGuard(STRICT_TARGET_POLICY) } : {};
 }
 
 async function writeResult(outDir: string, result: RunResult): Promise<string> {
@@ -99,6 +121,7 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
       '--fail-on-page-errors',
       'fail a step when the page throws an uncaught exception during it',
     )
+    .option('--block-private-targets', BLOCK_PRIVATE_HELP)
     .action(async (productUrl: string, flags: RunFlags) => {
       const outDir = path.resolve(io.cwd, flags.out);
       const result = await runJourneys({
@@ -112,6 +135,7 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
           ...(flags.stepTimeout ? { stepMs: flags.stepTimeout } : {}),
         },
         failOnPageErrors: flags.failOnPageErrors ?? false,
+        ...guardFor(flags.blockPrivateTargets),
       });
       const file = await writeResult(outDir, result);
       if (flags.json) {
@@ -133,7 +157,8 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
       'directory for results and failure artifacts',
       'checkout-sentinel-results',
     )
-    .action(async (flags: { config: string; json?: boolean; out: string }) => {
+    .option('--block-private-targets', BLOCK_PRIVATE_HELP)
+    .action(async (flags: CheckFlags) => {
       const config = await loadMonitorsFile(path.resolve(io.cwd, flags.config));
       const outDir = path.resolve(io.cwd, flags.out);
       const results: RunResult[] = [];
@@ -145,6 +170,7 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
           slowStepMs: monitor.slowStepMs,
           artifactsDir: outDir,
           timeouts: config.defaults?.timeouts ?? {},
+          ...guardFor(flags.blockPrivateTargets),
         });
         await writeResult(outDir, result);
         results.push(result);

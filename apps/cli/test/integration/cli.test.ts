@@ -119,3 +119,36 @@ monitors:
     expect(text).toContain('== broken store');
   });
 });
+
+describe('checkout-sentinel --block-private-targets', () => {
+  // Without the flag the CLI reaches local stores (every test above runs against 127.0.0.1).
+  it('refuses private targets in run and check when asked to', async () => {
+    const io = captureIo();
+    const code = await runCli(
+      ['run', ok.productUrl, '--device', 'mobile', '--json', '--block-private-targets'],
+      io,
+    );
+    expect(code).toBe(3);
+    const result = RunResultSchema.parse(JSON.parse(io.out.join('\n')));
+    expect(result.status).toBe('error');
+    expect(result.error?.message).toBe(
+      'Target blocked: 127.0.0.1 is a loopback address (127.0.0.0/8)',
+    );
+    expect(result.journeys).toEqual([]);
+
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(
+      path.join(cwd, 'internal.yml'),
+      `version: 1
+monitors:
+  - name: metadata
+    url: http://169.254.169.254/latest/meta-data/
+`,
+    );
+    const checked = captureIo();
+    expect(
+      await runCli(['check', '--config', 'internal.yml', '--block-private-targets'], checked),
+    ).toBe(3);
+    expect(checked.out.join('\n')).toContain('cloud metadata address');
+  });
+});
