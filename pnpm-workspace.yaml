@@ -6,3 +6,5 @@ packages:
 # pnpm 11 runs dependency install scripts only for packages listed here.
 allowBuilds:
   esbuild: true
+  # Optional native speedup for BullMQ's msgpackr; the pure JS path is used without it.
+  msgpackr-extract: false
