@@ -41,4 +41,26 @@ describe('loadApiConfig', () => {
     expect(config.API_TOKEN).toBeUndefined();
     expect(config.LOG_LEVEL).toBe('info');
   });
+
+  it('blocks private targets unless ALLOW_PRIVATE_TARGETS is set', () => {
+    expect(loadApiConfig({ DATABASE_URL: 'postgres://x' }).ALLOW_PRIVATE_TARGETS).toBe(false);
+    expect(
+      loadApiConfig({ DATABASE_URL: 'postgres://x', ALLOW_PRIVATE_TARGETS: '' })
+        .ALLOW_PRIVATE_TARGETS,
+    ).toBe(false);
+    const local = loadApiConfig({
+      DATABASE_URL: 'postgres://x',
+      ALLOW_PRIVATE_TARGETS: '1',
+      ALLOWED_TARGET_PORTS: '8443,8080',
+      ALLOWED_TARGET_HOSTS: 'alerts.internal',
+    });
+    expect(local).toMatchObject({
+      ALLOW_PRIVATE_TARGETS: true,
+      ALLOWED_TARGET_PORTS: [8443, 8080],
+      ALLOWED_TARGET_HOSTS: ['alerts.internal'],
+    });
+    expect(() =>
+      loadApiConfig({ DATABASE_URL: 'postgres://x', ALLOW_PRIVATE_TARGETS: 'on' }),
+    ).toThrow(/ALLOW_PRIVATE_TARGETS/);
+  });
 });

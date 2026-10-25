@@ -8,6 +8,7 @@ import { createDb, runMigrations } from '@checkout-sentinel/db';
 import { AppModule } from './app.module.js';
 import { createValidationPipe } from './common/validation.js';
 import type { ApiConfig } from './config.js';
+import type { AppOptions } from './infra.module.js';
 import type { ApiMetrics } from './metrics/api-metrics.js';
 import { API_METRICS } from './tokens.js';
 
@@ -22,9 +23,14 @@ export async function migrateIfEnabled(config: ApiConfig): Promise<void> {
 }
 
 /** Builds a fully configured app without listening, shared by main.ts and the e2e tests. */
-export async function createApp(config: ApiConfig): Promise<INestApplication> {
+export async function createApp(
+  config: ApiConfig,
+  options: AppOptions = {},
+): Promise<INestApplication> {
   await migrateIfEnabled(config);
-  const app = await NestFactory.create(AppModule.forConfig(config), { bufferLogs: true });
+  const app = await NestFactory.create(AppModule.forConfig(config, options), {
+    bufferLogs: true,
+  });
   app.useLogger(app.get(Logger));
   app.useGlobalPipes(createValidationPipe());
   app.use(app.get<ApiMetrics>(API_METRICS).middleware());

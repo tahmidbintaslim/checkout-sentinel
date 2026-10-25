@@ -7,6 +7,7 @@ import {
   createDb,
   type DbHandle,
 } from '@checkout-sentinel/db';
+import { TargetGuard, targetPolicyFromEnv, type ResolveHost } from '@checkout-sentinel/core';
 import { JourneyScheduler, createRedis } from '@checkout-sentinel/jobs';
 import type { ApiConfig } from './config.js';
 import { ApiMetrics } from './metrics/api-metrics.js';
@@ -19,7 +20,14 @@ import {
   REDIS,
   RUN_REPOSITORY,
   SCHEDULER,
+  TARGET_GUARD,
 } from './tokens.js';
+
+/** Overrides for tests; production uses the defaults. */
+export interface AppOptions {
+  /** Replaces the system DNS resolver used by the SSRF guard. */
+  resolveHost?: ResolveHost;
+}
 
 @Global()
 @Module({})
@@ -30,11 +38,19 @@ export class InfraModule implements OnApplicationShutdown {
     @Inject(SCHEDULER) private readonly scheduler: JourneyScheduler,
   ) {}
 
-  static forConfig(config: ApiConfig) {
+  static forConfig(config: ApiConfig, options: AppOptions = {}) {
     return {
       module: InfraModule,
       providers: [
         { provide: API_CONFIG, useValue: config },
+        {
+          provide: TARGET_GUARD,
+          useFactory: () =>
+            new TargetGuard(
+              targetPolicyFromEnv(config),
+              options.resolveHost ? { resolve: options.resolveHost } : {},
+            ),
+        },
         { provide: DB_HANDLE, useFactory: () => createDb(config.DATABASE_URL) },
         { provide: REDIS, useFactory: () => createRedis(config.REDIS_URL) },
         {
@@ -72,6 +88,7 @@ export class InfraModule implements OnApplicationShutdown {
         RUN_REPOSITORY,
         DELIVERY_REPOSITORY,
         API_METRICS,
+        TARGET_GUARD,
       ],
     };
   }
