@@ -19,7 +19,10 @@ const EnvSchema = z.object({
 export type WorkerConfig = z.infer<typeof EnvSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
-  const parsed = EnvSchema.safeParse(env);
+  // An empty variable means unset: compose forwards `${VAR:-}` as "", which
+  // would otherwise fail optional fields' validation (e.g. min length, url).
+  const set = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
+  const parsed = EnvSchema.safeParse(set);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Invalid worker environment: ${issues}`);

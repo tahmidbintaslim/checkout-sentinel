@@ -35,4 +35,10 @@ describe('loadApiConfig', () => {
     );
     expect(() => loadApiConfig({})).toThrow(/DATABASE_URL/);
   });
+
+  it('treats empty variables as unset (compose passes ${VAR:-} as "")', () => {
+    const config = loadApiConfig({ DATABASE_URL: 'postgres://x', API_TOKEN: '', LOG_LEVEL: '' });
+    expect(config.API_TOKEN).toBeUndefined();
+    expect(config.LOG_LEVEL).toBe('info');
+  });
 });

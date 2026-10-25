@@ -18,7 +18,10 @@ const EnvSchema = z.object({
 export type ApiConfig = z.infer<typeof EnvSchema>;
 
 export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
-  const parsed = EnvSchema.safeParse(env);
+  // An empty variable means unset: compose forwards `${VAR:-}` as "", which
+  // would otherwise fail optional fields' validation (e.g. min length, url).
+  const set = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
+  const parsed = EnvSchema.safeParse(set);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Invalid API environment: ${issues}`);
