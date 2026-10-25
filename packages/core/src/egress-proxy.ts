@@ -8,7 +8,7 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { connect, type AddressInfo, type Socket } from 'node:net';
-import type { Duplex } from 'node:stream';
+import { pipeline, type Duplex } from 'node:stream';
 import { TargetBlockedError, normalizeHost, type TargetGuard } from './ssrf.js';
 
 /**
@@ -259,7 +259,10 @@ export class EgressProxy {
     upstream.once('response', (response) => {
       upstream.setTimeout(0);
       res.writeHead(response.statusCode ?? 502, response.statusMessage, endToEnd(response.headers));
-      response.pipe(res);
+      // pipe() would leave the browser waiting when the store drops the connection mid-body
+      // (no 'end' arrives). pipeline() destroys the browser-facing response instead, so
+      // Chromium fails it at once, as it would without the proxy.
+      pipeline(response, res, () => undefined);
     });
     upstream.on('error', (error) => {
       if (clientGone) return;

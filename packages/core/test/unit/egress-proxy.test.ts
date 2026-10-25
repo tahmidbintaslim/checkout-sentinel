@@ -35,6 +35,18 @@ beforeAll(async () => {
       res.writeHead(302, { location: `http://127.0.0.1:${originPort}/hello` }).end();
       return;
     }
+    if (req.url === '/truncated-length' || req.url === '/truncated-chunked') {
+      // The store's connection drops in the middle of the body.
+      res.writeHead(
+        200,
+        req.url === '/truncated-length'
+          ? { 'content-type': 'text/plain', 'content-length': '100' }
+          : { 'content-type': 'text/plain' },
+      );
+      res.write('0123456789');
+      setTimeout(() => req.socket.destroy(), 100);
+      return;
+    }
     if (req.url === '/echo') {
       let body = '';
       req.on('data', (chunk) => (body += chunk));
@@ -89,6 +101,33 @@ function viaProxy(url: string, method = 'GET', body?: string): Promise<Reply> {
   });
 }
 
+/** How a plain HTTP response through the proxy finishes, or 'still open' after waitMs. */
+function endingViaProxy(url: string, waitMs: number): Promise<'end' | 'reset' | 'still open'> {
+  return new Promise((done) => {
+    const target = new URL(url);
+    let settled = false;
+    const finish = (how: 'end' | 'reset' | 'still open') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      req.destroy();
+      done(how);
+    };
+    const timer = setTimeout(() => finish('still open'), waitMs);
+    const req = request(
+      { host: '127.0.0.1', port: proxyPort, path: url, headers: { host: target.host } },
+      (res) => {
+        res.resume();
+        res.on('end', () => finish('end'));
+        res.on('aborted', () => finish('reset'));
+        res.on('error', () => finish('reset'));
+      },
+    );
+    req.on('error', () => finish('reset'));
+    req.end();
+  });
+}
+
 /** Opens a CONNECT tunnel; resolves with the proxy's status and the tunnel socket. */
 function connectVia(authority: string): Promise<{ status: number; socket: Socket }> {
   return new Promise((done, fail) => {
@@ -138,6 +177,14 @@ describe('EgressProxy, plain HTTP', () => {
     expect(hop.status).toBe(403);
     expect(proxy.take()).toEqual([expect.objectContaining({ outcome: 'blocked' })]);
   });
+
+  it.each(['/truncated-length', '/truncated-chunked'])(
+    'resets the browser-facing response when the store drops the connection mid-body (%s)',
+    async (path) => {
+      // Without the proxy, Chromium fails such a response at once; through it, it must too.
+      expect(await endingViaProxy(`http://store.test:${originPort}${path}`, 3_000)).toBe('reset');
+    },
+  );
 
   it('refuses disallowed ports before connecting', async () => {
     const reply = await viaProxy('http://93.184.215.14:6379/');
