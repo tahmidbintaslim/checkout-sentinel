@@ -1,6 +1,7 @@
 import type { Server } from 'node:http';
 import { Worker } from 'bullmq';
 import { pino, type Logger } from 'pino';
+import { TargetGuard, targetPolicyFromEnv } from '@checkout-sentinel/core';
 import {
   AlertDeliveryRepository,
   MonitorRepository,
@@ -43,6 +44,7 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
   const scheduler = new JourneyScheduler(redis);
   const metrics = new WorkerMetrics();
   const browsers = new BrowserPool();
+  const targetGuard = new TargetGuard(targetPolicyFromEnv(config));
 
   const deps = {
     monitors: new MonitorRepository(db.db),
@@ -54,6 +56,7 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
     metrics,
     logger: log,
     removeScheduler: (id: string) => scheduler.remove(id),
+    targetGuard,
     config: {
       artifactsDir: config.ARTIFACTS_DIR,
       alertTimeoutMs: config.ALERT_TIMEOUT_MS,
@@ -92,9 +95,15 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
       concurrency: config.WORKER_CONCURRENCY,
       perStore: config.PER_STORE_CONCURRENCY,
       metricsPort: config.METRICS_PORT,
+      targetPolicy: targetGuard.policy,
     },
     'worker started',
   );
+  if (targetGuard.permissive) {
+    log.warn(
+      'ALLOW_PRIVATE_TARGETS is on: journeys and alerts may reach private and internal addresses. Use it only for local development.',
+    );
+  }
 
   let closing: Promise<void> | null = null;
   const shutdown = () => {

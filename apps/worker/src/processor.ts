@@ -8,6 +8,7 @@ import {
   runJourneys,
   type AlertChannel,
   type RunResult,
+  type TargetGuard,
 } from '@checkout-sentinel/core';
 import type {
   AlertDeliveryRepository,
@@ -33,6 +34,8 @@ export interface ProcessorDeps {
   metrics: WorkerMetrics;
   logger: Logger;
   removeScheduler: (monitorId: string) => Promise<void>;
+  /** SSRF policy for monitor URLs and alert channels, checked again at use time. */
+  targetGuard: TargetGuard;
   config: {
     artifactsDir: string;
     alertTimeoutMs: number;
@@ -91,6 +94,7 @@ async function sendAlerts(
           timeoutMs: deps.config.alertTimeoutMs,
           attempts: 2,
           userAgent: `${TOOL_NAME}/${VERSION} (+${PROJECT_URL})`,
+          targetGuard: deps.targetGuard,
         },
       );
       deps.metrics.alerts.inc({
@@ -159,6 +163,7 @@ export async function processJourneyJob(
       slowStepMs: monitor.slowStepMs,
       runId: run.id,
       browser: await deps.browsers.get(),
+      targetGuard: deps.targetGuard,
       artifactsDir: path.join(deps.config.artifactsDir, monitor.id),
       timeouts: {
         navigationMs: deps.config.navigationTimeoutMs,

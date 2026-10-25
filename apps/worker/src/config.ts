@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { TargetPolicyEnvSchema } from '@checkout-sentinel/core';
 
-const EnvSchema = z.object({
+const EnvSchema = TargetPolicyEnvSchema.extend({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
