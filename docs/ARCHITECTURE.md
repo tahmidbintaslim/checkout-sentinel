@@ -220,7 +220,8 @@ given up on never applies its result:
 
 `apps/worker/test/e2e/housekeeping.e2e.test.ts` covers both cases with real journeys: a run swept
 while it is in progress, and a stalled attempt that a second worker runs again, whose older
-result arrives after the new attempt applied its own and before any sweep.
+result arrives after the new attempt applied its own and before any sweep. It also checks that a
+journey that throws after its run was swept leaves the `Worker lost` error in place.
 
 **Retention.** Runs that started more than `RUN_RETENTION_DAYS` ago (default 30, database
 clock) are deleted in batches of 500, oldest first, at most 20 batches per pass; the rest waits for

@@ -459,6 +459,39 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     expect((await runs.get(run.id))?.status).toBe('running');
   });
 
+  it('keeps the first final status when the journey throws after its run was swept', async () => {
+    const monitor = await createMonitor('Crash after sweep');
+    const deps = processorDeps({
+      run: async (options) => {
+        // The worker stalls long enough for its run to be swept, then the journey throws.
+        await db.pool.query(
+          `update runs set started_at = now() - interval '1 hour' where id = $1`,
+          [options.runId],
+        );
+        expect(await housekeeping().pass.runOnce()).toMatchObject({ swept: 1 });
+        throw new Error('browser crashed');
+      },
+    });
+    await expect(
+      processJourneyJob(deps, {
+        id: 'crash-1',
+        data: { monitorId: monitor.id, trigger: 'manual' },
+        moveToDelayed: async () => undefined,
+      }),
+    ).rejects.toThrow('browser crashed');
+    const [run] = (await runs.listForMonitor(monitor.id, 10)).items;
+    expect(run).toMatchObject({
+      status: 'error',
+      error: workerLostMessage(DEFAULT_STALE_AFTER_MS),
+    });
+
+    // A run that finished normally is not changed by a late fail either.
+    const passed = await seedRun(monitor.id, 'passed', '1 minute');
+    const before = await runs.get(passed);
+    await runs.fail(passed, 'boom');
+    expect(await runs.get(passed)).toEqual(before);
+  });
+
   it('discards a stalled attempt that finishes after BullMQ ran the job again, before any sweep', async () => {
     const monitor = await monitors.create(
       MonitorSpecSchema.parse({
