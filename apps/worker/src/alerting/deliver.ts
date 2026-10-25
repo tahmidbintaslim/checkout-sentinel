@@ -52,10 +52,14 @@ export function postJson(
     }, options.timeoutMs);
     request.once('response', (response) => {
       clearTimeout(timer);
-      response.resume();
       resolve(response.statusCode ?? 0);
+      // Only the status matters. The socket is never reused (agent: false), so close it now
+      // rather than wait for a body that a slow or streaming receiver may never finish.
+      response.on('error', () => undefined);
+      response.destroy();
     });
-    request.once('error', (error) => {
+    // `on`, not `once`: destroying the socket must never leave an 'error' without a listener.
+    request.on('error', (error) => {
       clearTimeout(timer);
       reject(error);
     });
