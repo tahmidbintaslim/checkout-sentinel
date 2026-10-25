@@ -36,6 +36,17 @@ describe('loadConfig', () => {
     ).toBeUndefined();
   });
 
+  it('rejects a housekeeping interval longer than Node timers allow', () => {
+    expect(
+      loadConfig({ DATABASE_URL: 'postgres://x', HOUSEKEEPING_INTERVAL_MS: '2147483647' })
+        .HOUSEKEEPING_INTERVAL_MS,
+    ).toBe(2_147_483_647);
+    // 30 days: setInterval would replace it with 1 ms and run passes back to back.
+    expect(() =>
+      loadConfig({ DATABASE_URL: 'postgres://x', HOUSEKEEPING_INTERVAL_MS: '2592000000' }),
+    ).toThrow(/HOUSEKEEPING_INTERVAL_MS: must be at most 2147483647/);
+  });
+
   it('accepts 0 to turn off housekeeping or retention, and rejects values too small to be safe', () => {
     expect(
       loadConfig({

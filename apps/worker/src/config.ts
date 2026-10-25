@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { TargetPolicyEnvSchema } from '@checkout-sentinel/core';
 
+/** The longest delay setInterval honors; Node replaces a longer one with 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
+
 const EnvSchema = TargetPolicyEnvSchema.extend({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
@@ -25,6 +28,7 @@ const EnvSchema = TargetPolicyEnvSchema.extend({
   HOUSEKEEPING_INTERVAL_MS: z.coerce
     .number()
     .int()
+    .max(MAX_TIMER_MS, `must be at most ${MAX_TIMER_MS} (about 24.8 days, Node's timer limit)`)
     .refine((ms) => ms === 0 || ms >= 10_000, 'must be 0 (off) or at least 10000')
     .default(300_000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),

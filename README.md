@@ -202,11 +202,11 @@ worker at a time (a Redis lock decides) runs a housekeeping pass:
   traces. Each monitor keeps its latest run, the run its status points at and the runs behind
   its latest alerts.
 
-| Variable                   | Default                            | Meaning                                                                        |
-| -------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
-| `RUN_STALE_AFTER_MS`       | 15 minutes, more for long timeouts | A run still `running` this long after it started is marked lost.               |
-| `RUN_RETENTION_DAYS`       | `30`                               | Days of run history to keep. `0` keeps everything.                             |
-| `HOUSEKEEPING_INTERVAL_MS` | `300000`                           | How often each worker tries a pass. `0` turns housekeeping off on that worker. |
+| Variable                   | Default                            | Meaning                                                                                                                |
+| -------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `RUN_STALE_AFTER_MS`       | 15 minutes, more for long timeouts | A run still `running` this long after it started is marked lost.                                                       |
+| `RUN_RETENTION_DAYS`       | `30`                               | Days of run history to keep. `0` keeps everything.                                                                     |
+| `HOUSEKEEPING_INTERVAL_MS` | `300000`                           | How often each worker tries a pass, at most `2147483647` (about 24.8 days). `0` turns housekeeping off on that worker. |
 
 Counts are in the worker metrics (`checkout_sentinel_runs_swept_total`,
 `checkout_sentinel_runs_deleted_total` and others). The rules, including what happens when a
