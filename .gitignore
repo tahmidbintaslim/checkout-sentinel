@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+checkout-sentinel-results/
+test-results/
+.DS_Store
