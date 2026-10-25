@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pino } from 'pino';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_STALE_AFTER_MS,
   Housekeeping,
@@ -114,6 +114,7 @@ describe('Housekeeping pass', () => {
     artifacts = await mkdtemp(path.join(tmpdir(), 'checkout-sentinel-housekeeping-'));
   });
   afterEach(async () => {
+    vi.useRealTimers();
     await rm(artifacts, { recursive: true, force: true });
   });
 
@@ -221,5 +222,52 @@ describe('Housekeeping pass', () => {
     await housekeeping.runOnce();
     await housekeeping.runOnce();
     expect(calls.markLost).toHaveLength(2);
+  });
+
+  it('runs a pass at start and then one every intervalMs until stopped', async () => {
+    vi.useFakeTimers();
+    const { deps, calls } = fakes();
+    // Retention reads the artifacts directory, real I/O that fake timers do not wait for.
+    const housekeeping = new Housekeeping(deps, options({ intervalMs: 10_000, retentionDays: 0 }));
+    housekeeping.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.markLost).toHaveLength(1);
+    // The boot pass plus the passes due at 10 s and 20 s.
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(calls.markLost).toHaveLength(3);
+    await housekeeping.stop();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls.markLost).toHaveLength(3);
+  });
+
+  it('skips the ticks that come due while a pass is still running', async () => {
+    vi.useFakeTimers();
+    const { deps } = fakes();
+    let sweeps = 0;
+    let finishSweep: () => void = () => undefined;
+    deps.runs.markLost = async () => {
+      sweeps += 1;
+      await new Promise<void>((resolve) => (finishSweep = resolve));
+      return [];
+    };
+    // The worker does not even ask for the Redis lock again while its own pass runs.
+    const acquire = deps.lock.acquire;
+    let lockAttempts = 0;
+    deps.lock.acquire = () => {
+      lockAttempts += 1;
+      return acquire();
+    };
+    const housekeeping = new Housekeeping(deps, options({ intervalMs: 10_000, retentionDays: 0 }));
+    housekeeping.start();
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect({ sweeps, lockAttempts }).toEqual({ sweeps: 1, lockAttempts: 1 });
+
+    finishSweep();
+    await vi.advanceTimersByTimeAsync(0);
+    // The next tick after the slow pass finished starts a new one.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect({ sweeps, lockAttempts }).toEqual({ sweeps: 2, lockAttempts: 2 });
+    finishSweep();
+    await housekeeping.stop();
   });
 });
