@@ -45,6 +45,37 @@ export class WorkerMetrics {
     registers: [this.registry],
   });
 
+  readonly runsSwept = new Counter({
+    name: 'checkout_sentinel_runs_swept_total',
+    help: 'Runs marked error ("Worker lost") because they were still running after the stale threshold',
+    registers: [this.registry],
+  });
+
+  readonly discardedResults = new Counter({
+    name: 'checkout_sentinel_discarded_results_total',
+    help: 'Results discarded because their run had already been marked lost or deleted',
+    registers: [this.registry],
+  });
+
+  readonly runsDeleted = new Counter({
+    name: 'checkout_sentinel_runs_deleted_total',
+    help: 'Runs deleted by retention',
+    registers: [this.registry],
+  });
+
+  readonly artifactDirsDeleted = new Counter({
+    name: 'checkout_sentinel_artifact_dirs_deleted_total',
+    help: 'Artifact directories removed by retention (deleted runs and deleted monitors)',
+    registers: [this.registry],
+  });
+
+  readonly housekeepingFailures = new Counter({
+    name: 'checkout_sentinel_housekeeping_failures_total',
+    help: 'Housekeeping tasks that failed, by task',
+    labelNames: ['task'] as const,
+    registers: [this.registry],
+  });
+
   constructor(options: { defaultMetrics?: boolean } = {}) {
     if (options.defaultMetrics ?? true) collectDefaultMetrics({ register: this.registry });
   }

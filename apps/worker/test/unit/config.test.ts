@@ -26,6 +26,40 @@ describe('loadConfig', () => {
     ).toThrow(/PUBLIC_BASE_URL/);
   });
 
+  it('defaults housekeeping to a 5 minute interval and 30 days of run history', () => {
+    const config = loadConfig({ DATABASE_URL: 'postgres://x' });
+    expect(config).toMatchObject({ HOUSEKEEPING_INTERVAL_MS: 300_000, RUN_RETENTION_DAYS: 30 });
+    // Unset means "derive from the timeouts" (see staleRunThreshold).
+    expect(config.RUN_STALE_AFTER_MS).toBeUndefined();
+    expect(
+      loadConfig({ DATABASE_URL: 'postgres://x', RUN_STALE_AFTER_MS: '' }).RUN_STALE_AFTER_MS,
+    ).toBeUndefined();
+  });
+
+  it('accepts 0 to turn off housekeeping or retention, and rejects values too small to be safe', () => {
+    expect(
+      loadConfig({
+        DATABASE_URL: 'postgres://x',
+        HOUSEKEEPING_INTERVAL_MS: '0',
+        RUN_RETENTION_DAYS: '0',
+        RUN_STALE_AFTER_MS: '1200000',
+      }),
+    ).toMatchObject({
+      HOUSEKEEPING_INTERVAL_MS: 0,
+      RUN_RETENTION_DAYS: 0,
+      RUN_STALE_AFTER_MS: 1_200_000,
+    });
+    expect(() =>
+      loadConfig({ DATABASE_URL: 'postgres://x', HOUSEKEEPING_INTERVAL_MS: '500' }),
+    ).toThrow(/HOUSEKEEPING_INTERVAL_MS/);
+    expect(() => loadConfig({ DATABASE_URL: 'postgres://x', RUN_STALE_AFTER_MS: '5000' })).toThrow(
+      /RUN_STALE_AFTER_MS/,
+    );
+    expect(() => loadConfig({ DATABASE_URL: 'postgres://x', RUN_RETENTION_DAYS: '-1' })).toThrow(
+      /RUN_RETENTION_DAYS/,
+    );
+  });
+
   it('keeps private targets blocked unless ALLOW_PRIVATE_TARGETS is set', () => {
     expect(loadConfig({ DATABASE_URL: 'postgres://x' })).toMatchObject({
       ALLOW_PRIVATE_TARGETS: false,

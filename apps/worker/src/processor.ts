@@ -49,7 +49,9 @@ export interface ProcessorDeps {
 
 export type JobOutcome =
   | { outcome: 'skipped'; reason: string }
-  | { outcome: 'completed'; runId: string; status: RunResult['status']; alerts: string[] };
+  | { outcome: 'completed'; runId: string; status: RunResult['status']; alerts: string[] }
+  /** The result arrived after its run was marked lost or deleted; it changed nothing. */
+  | { outcome: 'discarded'; runId: string; status: RunResult['status']; reason: string };
 
 /** Delay before retrying a job whose store is busy; jittered so waiting jobs spread out. */
 function lockRetryDelayMs(): number {
@@ -173,7 +175,18 @@ export async function processJourneyJob(
         ? { userAgentContactUrl: deps.config.userAgentContactUrl }
         : {}),
     });
-    await deps.runs.finish(run.id, result);
+    if (!(await deps.runs.finish(run.id, result))) {
+      // The sweeper decided this worker was lost (or the run was deleted) before the result
+      // arrived. The first final status stands: a late result could be older than one a
+      // retry has applied since, so it must not move the alert state or send alerts.
+      const current = await deps.runs.get(run.id);
+      const reason = current
+        ? `run was already marked ${current.status}${current.error ? ` (${current.error})` : ''}`
+        : 'run was deleted';
+      deps.metrics.discardedResults.inc();
+      log.warn({ runId: run.id, status: result.status, reason }, 'late journey result discarded');
+      return { outcome: 'discarded', runId: run.id, status: result.status, reason };
+    }
     deps.metrics.observeRun(result, data.trigger);
 
     const decisions = await deps.state.withLockedState(monitor.id, async (state) => {

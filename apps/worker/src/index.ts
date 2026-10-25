@@ -3,6 +3,7 @@ export * from './alerting/payload.js';
 export * from './alerting/state-machine.js';
 export * from './browser-pool.js';
 export * from './config.js';
+export * from './housekeeping.js';
 export * from './metrics.js';
 export * from './processor.js';
 export * from './store-lock.js';

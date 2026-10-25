@@ -70,6 +70,10 @@ services:
       PER_STORE_CONCURRENCY: ${PER_STORE_CONCURRENCY:-1}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       USER_AGENT_CONTACT_URL: ${USER_AGENT_CONTACT_URL:-}
+      HOUSEKEEPING_INTERVAL_MS: ${HOUSEKEEPING_INTERVAL_MS:-}
+      RUN_STALE_AFTER_MS: ${RUN_STALE_AFTER_MS:-}
+      RUN_RETENTION_DAYS: ${RUN_RETENTION_DAYS:-}
+    # One volume shared by every worker replica, so retention can remove any run's files.
     volumes:
       - artifacts:/data/artifacts
     # Chromium needs more shared memory than Docker's 64MB default.
