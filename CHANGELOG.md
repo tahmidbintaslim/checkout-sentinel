@@ -5,6 +5,36 @@ All notable changes are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). The run result JSON has its own version
 (`schemaVersion`), listed with each release.
 
+## [Unreleased]
+
+Result schema version: 1 (unchanged).
+
+### Added
+
+- SSRF guard for every URL fetched on a user's behalf (monitor product URLs, webhook and Slack
+  URLs). Refuses non-http(s) schemes, credentials in URLs, ports other than 80 and 443, and
+  hosts that are or resolve to loopback, private, CGNAT, link-local (including
+  `169.254.169.254`), unique-local, IPv4-mapped, multicast, unspecified or reserved addresses.
+  Slack channel URLs must start with `https://hooks.slack.com/`.
+- The API checks monitor and alert URLs on create and update (400 with field-level issues).
+- The worker checks again at use time: before each run (refused runs are stored as `error`,
+  with no alert), on every connection of the journey's browser through a per-run egress proxy
+  (redirect hops included), and on every alert delivery. Connections go to the address that
+  was checked, which closes DNS rebinding.
+- `ALLOW_PRIVATE_TARGETS` (default `false`), `ALLOWED_TARGET_HOSTS` and `ALLOWED_TARGET_PORTS`
+  settings for the API and worker.
+- CLI flag `--block-private-targets` for `run` and `check`. Without it the CLI still reaches
+  private addresses, as before.
+- Step details list requests the guard refused (`blockedRequests`).
+- Fixture variant `redirect-to-loopback`.
+
+### Changed
+
+- Alert deliveries no longer use `fetch`. A redirect answer is now a final failed delivery
+  (`HTTP 302 (redirects are not followed)`) instead of a retried network error.
+- Local development and tests against fixture stores on 127.0.0.1 need
+  `ALLOW_PRIVATE_TARGETS=true` on the API and worker.
+
 ## [0.1.0] - 2026-10-25
 
 First release. Result schema version: 1.

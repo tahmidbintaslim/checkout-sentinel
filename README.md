@@ -57,10 +57,15 @@ checkout-sentinel run <productUrl>
   --navigation-timeout <ms>             page loads (default: 30000)
   --step-timeout <ms>                   in-page waits (default: 15000)
   --fail-on-page-errors                 fail a step if the page throws during it
+  --block-private-targets               refuse private and internal addresses, as the worker does
 
 checkout-sentinel init [--path checkout-sentinel.yml] [--force]
-checkout-sentinel check [--config checkout-sentinel.yml] [--json] [--out <dir>]
+checkout-sentinel check [--config checkout-sentinel.yml] [--json] [--out <dir>] [--block-private-targets]
 ```
+
+The CLI may reach private addresses by default (it runs on your machine, and `localhost` or a
+staging server on your network is a normal target). The API and worker refuse them; see
+[Outbound URL checks](#outbound-url-checks).
 
 Exit codes: `0` every journey passed, `1` a journey failed, `2` bad arguments or config,
 `3` the run could not execute (for example Chromium did not start).
@@ -163,6 +168,21 @@ port 9465 of each worker.
 | `POST /monitors/:id/runs`        | Queue a run now (202)                    |
 | `GET /monitors/:id/alerts`       | Alert delivery log                       |
 | `GET /runs/:id`                  | One run with its full result JSON        |
+
+### Outbound URL checks
+
+Monitor URLs, webhook URLs and Slack URLs are fetched by your servers, so the API and worker
+refuse ones that point at internal addresses: loopback, private networks, link-local (including
+the cloud metadata address `169.254.169.254`), unique-local IPv6 and other reserved ranges,
+directly or through DNS. Ports other than 80 and 443, and credentials in URLs, are refused too.
+Slack channel URLs must start with `https://hooks.slack.com/`. The API answers 400; the worker
+checks again before every run and every alert, and the journey's browser can only connect to
+public addresses, so a store cannot redirect it to an internal host.
+
+To monitor a store running on your own machine or network (for example the fixture stores),
+set `ALLOW_PRIVATE_TARGETS=true` on both the API and the worker. Do not do that where other
+people can create monitors. `ALLOWED_TARGET_HOSTS` and `ALLOWED_TARGET_PORTS` allow single
+internal hosts or extra ports instead. Details are in [SECURITY.md](SECURITY.md#ssrf-protection).
 
 ## Architecture
 

@@ -7,6 +7,10 @@ x-app-env: &app-env
   DATABASE_URL: postgres://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel}@postgres:5432/${POSTGRES_DB:-checkout_sentinel}
   REDIS_URL: redis://redis:6379
   LOG_LEVEL: ${LOG_LEVEL:-info}
+  # Outbound URL checks (SSRF). Keep false unless every monitor author is trusted; see SECURITY.md.
+  ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+  ALLOWED_TARGET_HOSTS: ${ALLOWED_TARGET_HOSTS:-}
+  ALLOWED_TARGET_PORTS: ${ALLOWED_TARGET_PORTS:-}
 
 services:
   postgres:

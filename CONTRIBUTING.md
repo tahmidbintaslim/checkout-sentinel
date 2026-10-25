@@ -42,6 +42,11 @@ pnpm build
 - **Never submit payment or place an order.** Do not add code that fills or clicks anything on a
   checkout page. If a platform has a new order endpoint, add it to `packages/core/src/safety.ts`
   with a unit test.
+- **Outbound requests.** Anything that fetches a URL a user supplied goes through `TargetGuard`
+  (`packages/core/src/ssrf.ts`): check the URL, then connect with `guard.lookup` so the socket
+  uses the address that was checked. Never follow redirects without checking each hop. Tests
+  that run the API or worker against fixture stores on 127.0.0.1 set
+  `ALLOW_PRIVATE_TARGETS=true` or allow the fixture's host and port explicitly.
 - **Result schema.** Additive, optional fields are fine. Renaming or removing a field, or
   changing its meaning, bumps `RESULT_SCHEMA_VERSION` and goes in CHANGELOG.md.
 - **Database.** Change `packages/db/src/schema.ts`, then run `pnpm --filter @checkout-sentinel/db
