@@ -1,0 +1,118 @@
+import type { Server } from 'node:http';
+import { Worker } from 'bullmq';
+import { pino, type Logger } from 'pino';
+import {
+  AlertDeliveryRepository,
+  MonitorRepository,
+  RunRepository,
+  StateRepository,
+  createDb,
+  pingDb,
+} from '@checkout-sentinel/db';
+import {
+  JOURNEY_QUEUE,
+  JourneyScheduler,
+  createRedis,
+  type JourneyJob,
+} from '@checkout-sentinel/jobs';
+import { BrowserPool } from './browser-pool.js';
+import type { WorkerConfig } from './config.js';
+import { startMetricsServer } from './http.js';
+import { WorkerMetrics } from './metrics.js';
+import { processJourneyJob, type JobOutcome } from './processor.js';
+import { StoreLock } from './store-lock.js';
+
+export interface RunningWorker {
+  worker: Worker<JourneyJob, JobOutcome>;
+  metrics: WorkerMetrics;
+  metricsServer: Server | null;
+  logger: Logger;
+  /** Stops taking jobs, waits for running journeys, then closes browser, Redis and Postgres. */
+  shutdown(): Promise<void>;
+}
+
+/** Longest a single run may hold its store lock before Redis expires it. */
+const STORE_LOCK_TTL_MS = 10 * 60_000;
+
+export async function startWorker(config: WorkerConfig, logger?: Logger): Promise<RunningWorker> {
+  const log =
+    logger ?? pino({ level: config.LOG_LEVEL, base: { service: 'checkout-sentinel-worker' } });
+  const db = createDb(config.DATABASE_URL, { max: Math.max(4, config.WORKER_CONCURRENCY * 2) });
+  const redis = createRedis(config.REDIS_URL);
+  const workerConnection = createRedis(config.REDIS_URL);
+  const scheduler = new JourneyScheduler(redis);
+  const metrics = new WorkerMetrics();
+  const browsers = new BrowserPool();
+
+  const deps = {
+    monitors: new MonitorRepository(db.db),
+    runs: new RunRepository(db.db),
+    state: new StateRepository(db.db),
+    deliveries: new AlertDeliveryRepository(db.db),
+    lock: new StoreLock(redis, config.PER_STORE_CONCURRENCY, STORE_LOCK_TTL_MS),
+    browsers,
+    metrics,
+    logger: log,
+    removeScheduler: (id: string) => scheduler.remove(id),
+    config: {
+      artifactsDir: config.ARTIFACTS_DIR,
+      alertTimeoutMs: config.ALERT_TIMEOUT_MS,
+      navigationTimeoutMs: config.NAVIGATION_TIMEOUT_MS,
+      stepTimeoutMs: config.STEP_TIMEOUT_MS,
+      publicBaseUrl: config.PUBLIC_BASE_URL,
+      userAgentContactUrl: config.USER_AGENT_CONTACT_URL,
+    },
+  };
+
+  const worker = new Worker<JourneyJob, JobOutcome>(
+    JOURNEY_QUEUE,
+    (job, token) => processJourneyJob(deps, job, token),
+    {
+      connection: workerConnection,
+      concurrency: config.WORKER_CONCURRENCY,
+      // A journey can legitimately take minutes; renew the job lock well inside that.
+      lockDuration: 120_000,
+    },
+  );
+  worker.on('failed', (job, error) => {
+    log.error({ jobId: job?.id, err: error }, 'job failed');
+  });
+  worker.on('error', (error) => log.error({ err: error }, 'worker error'));
+
+  const metricsServer =
+    config.METRICS_PORT > 0
+      ? await startMetricsServer(metrics, config.METRICS_PORT, async () => {
+          const [dbOk, redisOk] = await Promise.all([pingDb(db), scheduler.ping()]);
+          return dbOk && redisOk && worker.isRunning();
+        })
+      : null;
+
+  log.info(
+    {
+      concurrency: config.WORKER_CONCURRENCY,
+      perStore: config.PER_STORE_CONCURRENCY,
+      metricsPort: config.METRICS_PORT,
+    },
+    'worker started',
+  );
+
+  let closing: Promise<void> | null = null;
+  const shutdown = () => {
+    closing ??= (async () => {
+      log.info('shutting down: waiting for running journeys');
+      await worker.close();
+      await browsers.close();
+      await scheduler.close();
+      redis.disconnect();
+      workerConnection.disconnect();
+      await db.close();
+      await new Promise<void>((resolve) =>
+        metricsServer ? metricsServer.close(() => resolve()) : resolve(),
+      );
+      log.info('shutdown complete');
+    })();
+    return closing;
+  };
+
+  return { worker, metrics, metricsServer, logger: log, shutdown };
+}

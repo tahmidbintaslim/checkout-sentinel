@@ -1,0 +1,34 @@
+{
+  "name": "@checkout-sentinel/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Postgres schema, migrations and data access for the checkout-sentinel API and worker.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@checkout-sentinel/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "drizzle"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node dist/migrate-cli.js"
+  },
+  "dependencies": {
+    "@checkout-sentinel/core": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "~0.31.11"
+  }
+}

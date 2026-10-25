@@ -1,0 +1,29 @@
+{
+  "name": "@checkout-sentinel/fixtures",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Shopify-like and WooCommerce-like fixture stores for tests and demos. Never a real store.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@checkout-sentinel/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "ioredis": "6.0.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.23.1"
+  }
+}

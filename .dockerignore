@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.github
+coverage
+checkout-sentinel-results
+test-results
+.env
+docs
+*.md
