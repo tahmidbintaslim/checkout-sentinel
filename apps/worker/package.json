@@ -30,5 +30,8 @@
   },
   "devDependencies": {
     "@checkout-sentinel/fixtures": "workspace:*"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

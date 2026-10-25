@@ -37,5 +37,8 @@
   "devDependencies": {
     "@checkout-sentinel/fixtures": "workspace:*",
     "@types/express": "^5.0.6"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }
