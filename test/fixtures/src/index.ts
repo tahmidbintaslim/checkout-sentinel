@@ -20,7 +20,13 @@ export type FixtureVariant =
   /** The cart add endpoint answers 500. */
   | 'cart-500'
   /** The checkout route answers 404. */
-  | 'checkout-404';
+  | 'checkout-404'
+  /**
+   * The product page, requested by any host name other than 127.0.0.1, redirects to the same
+   * page on http://127.0.0.1, the way a hostile store could steer the browser to an internal
+   * address. SSRF guard tests.
+   */
+  | 'redirect-to-loopback';
 
 export interface FixtureStoreOptions {
   platform: FixturePlatform;
@@ -62,6 +68,12 @@ ${body}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export const PRODUCT_PATHS: Readonly<Record<FixturePlatform, string>> = {
+  shopify: '/products/demo-tee',
+  woocommerce: '/product/demo-hoodie/',
+  generic: '/shop/widget',
+};
+
 export function createFixtureApp(options: FixtureStoreOptions): {
   app: express.Express;
   orderAttempts: () => number;
@@ -79,6 +91,17 @@ export function createFixtureApp(options: FixtureStoreOptions): {
   });
   app.use(express.urlencoded({ extended: false }));
   app.use(express.json());
+
+  if (variant === 'redirect-to-loopback') {
+    const productPath = PRODUCT_PATHS[options.platform];
+    app.use((req, res, next) => {
+      if (req.method === 'GET' && req.path === productPath && req.hostname !== '127.0.0.1') {
+        res.redirect(302, `http://127.0.0.1:${req.socket.localPort}${req.originalUrl}`);
+        return;
+      }
+      next();
+    });
+  }
 
   const session = (req: Request, res: Response): string => {
     const cookie = req.headers.cookie ?? '';
@@ -348,12 +371,6 @@ ${notice}
 
   return { app, orderAttempts: () => orders, userAgents: () => [...agents] };
 }
-
-export const PRODUCT_PATHS: Readonly<Record<FixturePlatform, string>> = {
-  shopify: '/products/demo-tee',
-  woocommerce: '/product/demo-hoodie/',
-  generic: '/shop/widget',
-};
 
 export async function startFixtureStore(options: FixtureStoreOptions): Promise<FixtureStore> {
   const { app, orderAttempts, userAgents } = createFixtureApp(options);

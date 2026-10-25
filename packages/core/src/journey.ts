@@ -6,6 +6,7 @@ import { launchBrowser } from './browser.js';
 import { readCart } from './cart.js';
 import { collectPageSignals, describeSignals, detectPlatform } from './detect.js';
 import { DEVICE_PROFILES, resolveDevices, type DeviceSelection } from './devices.js';
+import { EgressProxy, type EgressEvent } from './egress-proxy.js';
 import { TimeoutsSchema, type Timeouts } from './monitor.js';
 import { StepRecorder } from './recorder.js';
 import { installOrderGuard } from './safety.js';
@@ -22,6 +23,7 @@ import {
   type StepName,
   type StepResult,
 } from './schema.js';
+import type { TargetGuard } from './ssrf.js';
 import {
   CHECKOUT_TARGETS,
   addToCartStrategies,
@@ -51,6 +53,13 @@ export interface RunOptions {
   /** Called after each step, for progress output. */
   onStep?: (device: DeviceName, step: StepResult) => void;
   runId?: string;
+  /**
+   * SSRF protection. The product URL is checked (with DNS) before a browser is used, and
+   * unless the guard allows private targets, every connection the journey opens goes through
+   * an egress proxy that refuses private addresses, redirect hops included. Without a guard
+   * the journey can reach any address (the CLI's default, since it runs on the user's machine).
+   */
+  targetGuard?: TargetGuard;
 }
 
 export const DEFAULT_SLOW_STEP_MS = 8_000;
@@ -323,11 +332,49 @@ interface ResolvedOptions {
   slowStepMs: number;
 }
 
+/** At most this many blocked requests are listed in one step's details. */
+const MAX_BLOCKED_LISTED = 10;
+
+/**
+ * Folds the egress proxy's events for one step into its result: blocked requests are listed
+ * in the details, and a failed step's message names the block (or the connection failure to
+ * the store's own host), which Chromium would otherwise report only as a tunnel or HTTP error.
+ */
+function applyEgressEvents(
+  status: StepResult['status'],
+  message: string | undefined,
+  details: StepResult['details'],
+  events: readonly EgressEvent[],
+  storeHost: string,
+): string | undefined {
+  const blocked = events.filter((event) => event.outcome === 'blocked');
+  if (blocked.length > 0) {
+    const listed = blocked.slice(0, MAX_BLOCKED_LISTED).map((e) => `${e.target} (${e.reason})`);
+    if (blocked.length > MAX_BLOCKED_LISTED) {
+      listed.push(`and ${blocked.length - MAX_BLOCKED_LISTED} more`);
+    }
+    details.blockedRequests = listed.join('; ');
+  }
+  if (status !== 'failed') return message;
+  const firstBlocked = blocked[0];
+  if (firstBlocked) {
+    return `Blocked a request to ${firstBlocked.target}: ${firstBlocked.reason}${message ? ` (${message})` : ''}`;
+  }
+  const storeFailure = events.find(
+    (event) => event.outcome === 'failed' && event.host === storeHost,
+  );
+  if (storeFailure) {
+    return `${message ?? 'Step failed'} (${storeFailure.target}: ${storeFailure.reason})`;
+  }
+  return message;
+}
+
 async function runJourney(
   browser: Browser,
   device: DeviceName,
   runId: string,
   options: RunOptions & ResolvedOptions,
+  egress?: EgressProxy,
 ): Promise<JourneyResult> {
   const profile = DEVICE_PROFILES[device];
   const startedAt = new Date();
@@ -340,6 +387,7 @@ async function runJourney(
     locale: 'en-US',
     // A service worker could answer from cache and hide a broken origin.
     serviceWorkers: 'block',
+    ...(egress ? { proxy: { server: egress.url } } : {}),
   });
   context.setDefaultTimeout(options.timeouts.stepMs);
   context.setDefaultNavigationTimeout(options.timeouts.navigationMs);
@@ -370,6 +418,10 @@ async function runJourney(
     ? path.join(options.artifactsDir as string, fileSafe(runId))
     : undefined;
   if (artifactBase) await mkdir(artifactBase, { recursive: true });
+
+  const storeHost = new URL(options.url).hostname;
+  // Events from context setup (browser background traffic) belong to no step.
+  egress?.take();
 
   let trace: string | undefined;
   try {
@@ -408,6 +460,9 @@ async function runJourney(
       }
       const durationMs = Math.round(performance.now() - t0);
       const events = recorder.take(name);
+      if (egress) {
+        message = applyEgressEvents(status, message, details, egress.take(), storeHost);
+      }
       if (status === 'passed' && options.failOnPageErrors && events.pageErrors.length > 0) {
         status = 'failed';
         message = `Page threw ${events.pageErrors.length} uncaught exception(s): ${events.pageErrors[0]?.message ?? ''}`;
@@ -521,6 +576,15 @@ export async function runJourneys(options: RunOptions): Promise<RunResult> {
     return finish([], `Only http and https URLs are supported, got ${parsedUrl.protocol}`);
   }
 
+  const guard = options.targetGuard;
+  if (guard) {
+    // DNS may have changed since the URL was accepted; this is the use-time check. A name that
+    // does not resolve is left to the journey, which then fails at open_product like any
+    // shopper would, instead of being reported as a run error.
+    const verdict = await guard.checkUrl(parsedUrl, 'store');
+    if (!verdict.allowed) return finish([], `Target blocked: ${verdict.reason}`);
+  }
+
   let browser = options.browser;
   const ownsBrowser = browser === undefined;
   try {
@@ -532,13 +596,18 @@ export async function runJourneys(options: RunOptions): Promise<RunResult> {
   }
 
   const journeys: JourneyResult[] = [];
+  let egress: EgressProxy | undefined;
   try {
+    if (guard && !guard.permissive) {
+      egress = await EgressProxy.start(guard, { connectTimeoutMs: resolved.timeouts.navigationMs });
+    }
     for (const device of devices) {
-      journeys.push(await runJourney(browser, device, runId, { ...options, ...resolved }));
+      journeys.push(await runJourney(browser, device, runId, { ...options, ...resolved }, egress));
     }
   } catch (error) {
     return finish(journeys, `Journey aborted: ${errorMessage(error)}`);
   } finally {
+    await egress?.close().catch(() => undefined);
     if (ownsBrowser) await browser.close().catch(() => undefined);
   }
   return finish(journeys);
