@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { MonitorSpec, RunResult } from '@checkout-sentinel/core';
 import type { Database } from './client.js';
 import {
@@ -66,6 +66,11 @@ export class MonitorRepository {
     return rows.map((r) => ({ ...r.monitors, state: r.monitor_state }));
   }
 
+  async listIds(): Promise<string[]> {
+    const rows = await this.db.select({ id: monitors.id }).from(monitors);
+    return rows.map((row) => row.id);
+  }
+
   async listEnabled(): Promise<MonitorRow[]> {
     return this.db.select().from(monitors).where(eq(monitors.enabled, true));
   }
@@ -105,6 +110,17 @@ export interface RunPage {
   nextCursor: string | null;
 }
 
+export interface LostRun {
+  id: string;
+  monitorId: string;
+  startedAt: Date;
+}
+
+export interface DeletedRun {
+  id: string;
+  monitorId: string;
+}
+
 export class RunRepository {
   constructor(private readonly db: Database) {}
 
@@ -114,7 +130,12 @@ export class RunRepository {
     return row;
   }
 
-  async finish(runId: string, result: RunResult): Promise<RunRow> {
+  /**
+   * Stores the run's result. A run's final status is written once: if the row is no longer
+   * "running" (the sweeper marked it lost, or it was deleted), nothing is written and null is
+   * returned, so a result that arrives late cannot overwrite the sweep's verdict.
+   */
+  async finish(runId: string, result: RunResult): Promise<RunRow | null> {
     const failedStep = result.journeys.find((j) => j.failedStep)?.failedStep ?? null;
     const [row] = await this.db
       .update(runs)
@@ -127,17 +148,83 @@ export class RunRepository {
         error: result.error?.message ?? null,
         result,
       })
-      .where(eq(runs.id, runId))
+      .where(and(eq(runs.id, runId), eq(runs.status, 'running')))
       .returning();
-    if (!row) throw new Error(`run ${runId} not found`);
-    return row;
+    return row ?? null;
   }
 
+  /** Marks a run that threw as error. Like finish, it only changes a run that is still running. */
   async fail(runId: string, message: string): Promise<void> {
     await this.db
       .update(runs)
       .set({ status: 'error', finishedAt: new Date(), error: message })
-      .where(eq(runs.id, runId));
+      .where(and(eq(runs.id, runId), eq(runs.status, 'running')));
+  }
+
+  /**
+   * Marks runs that are still "running" staleAfterMs after they started (database clock) as
+   * error, oldest first. A row that a finishing worker holds locked is skipped, so its result
+   * wins. monitor_state is not touched: an error says nothing about the store.
+   */
+  async markLost(staleAfterMs: number, error: string, limit = 1_000): Promise<LostRun[]> {
+    const stale = this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.status, 'running'),
+          lt(runs.startedAt, sql`now() - make_interval(secs => ${staleAfterMs / 1000})`),
+        ),
+      )
+      .orderBy(runs.startedAt)
+      .limit(limit)
+      .for('update', { skipLocked: true });
+    return this.db
+      .update(runs)
+      .set({ status: 'error', finishedAt: sql`now()`, error })
+      .where(and(eq(runs.status, 'running'), inArray(runs.id, stale)))
+      .returning({ id: runs.id, monitorId: runs.monitorId, startedAt: runs.startedAt });
+  }
+
+  /**
+   * Deletes up to `limit` finished runs that started more than olderThanDays ago (database
+   * clock), oldest first. Their alert deliveries go with them (foreign key cascade). These are
+   * kept whatever their age:
+   * - each monitor's latest run, so its history is never empty;
+   * - the run monitor_state.last_run_id points at;
+   * - the run behind each monitor's latest alert of each kind, so the delivery rows of the
+   *   current state (for example the failure alert of an incident still open) stay;
+   * - runs still "running"; the sweeper finishes those first.
+   * Rows locked by a concurrent pass are skipped, so two passes never wait on each other.
+   */
+  async deleteExpired(olderThanDays: number, limit: number): Promise<DeletedRun[]> {
+    const deleted = await this.db.execute<{ id: string; monitor_id: string }>(sql`
+      delete from ${runs}
+      where id in (
+        select r.id
+        from ${runs} r
+        where r.started_at < now() - make_interval(days => ${olderThanDays})
+          and r.status <> 'running'
+          and exists (
+            select 1 from ${runs} newer
+            where newer.monitor_id = r.monitor_id
+              and (newer.started_at, newer.id) > (r.started_at, r.id)
+          )
+          and r.id not in (
+            select last_run_id from ${monitorState} where last_run_id is not null
+          )
+          and r.id not in (
+            select distinct on (monitor_id, kind) run_id
+            from ${alertDeliveries}
+            order by monitor_id, kind, created_at desc, id desc
+          )
+        order by r.started_at
+        limit ${limit}
+        for update of r skip locked
+      )
+      returning id, monitor_id
+    `);
+    return deleted.rows.map((row) => ({ id: row.id, monitorId: row.monitor_id }));
   }
 
   async get(runId: string): Promise<RunRow | null> {

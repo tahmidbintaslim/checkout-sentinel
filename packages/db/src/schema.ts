@@ -69,7 +69,15 @@ export const runs = pgTable(
     /** Full RunResult (schema version 1). */
     result: jsonb('result').$type<RunResult>(),
   },
-  (table) => [index('runs_monitor_started_idx').on(table.monitorId, table.startedAt.desc())],
+  (table) => [
+    index('runs_monitor_started_idx').on(table.monitorId, table.startedAt.desc()),
+    // Retention reads old runs across all monitors, oldest first.
+    index('runs_started_idx').on(table.startedAt),
+    // The stale-run sweep only looks at running rows; this index holds just those.
+    index('runs_running_started_idx')
+      .on(table.startedAt)
+      .where(sql`${table.status} = 'running'`),
+  ],
 );
 
 /** One row per monitor: the alerting state machine's memory and the "latest status" view. */
