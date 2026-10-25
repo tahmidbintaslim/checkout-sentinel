@@ -2,3 +2,7 @@ packages:
   - packages/*
   - apps/*
   - test/fixtures
+
+# pnpm 11 runs dependency install scripts only for packages listed here.
+allowBuilds:
+  esbuild: true
