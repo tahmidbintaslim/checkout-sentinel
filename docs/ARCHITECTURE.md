@@ -205,7 +205,8 @@ flowchart LR
 - **Opt-in for development.** `ALLOW_PRIVATE_TARGETS=true` skips the address, port and Slack
   checks, and no proxy is started. The fixture tests use it. `ALLOWED_TARGET_HOSTS` and
   `ALLOWED_TARGET_PORTS` are narrower exceptions for production. The CLI runs without a guard
-  unless `--block-private-targets` is passed.
+  unless `--block-private-targets` is passed; with it, the CLI builds the guard from the same
+  two exception settings and never from `ALLOW_PRIVATE_TARGETS`.
 
 ## Failure handling
 

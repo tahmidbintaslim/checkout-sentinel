@@ -106,7 +106,9 @@ The CLI allows private targets by default. It runs on your own machine, against 
 or a config file you wrote, and checking a store on `localhost`, a fixture store or a staging
 server on a private network is a normal use. Pass `--block-private-targets` to `run` or
 `check` to apply the same guard as the worker, for example in CI against a config file that
-other people can change.
+other people can change. With the flag, the port rule applies too (only 80 and 443), and the
+CLI reads `ALLOWED_TARGET_HOSTS` and `ALLOWED_TARGET_PORTS` from its environment as the worker
+does. `ALLOW_PRIVATE_TARGETS` is ignored when the flag is passed.
 
 ### What the guard does not cover
 

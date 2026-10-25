@@ -57,7 +57,9 @@ checkout-sentinel run <productUrl>
   --navigation-timeout <ms>             page loads (default: 30000)
   --step-timeout <ms>                   in-page waits (default: 15000)
   --fail-on-page-errors                 fail a step if the page throws during it
-  --block-private-targets               refuse private and internal addresses, as the worker does
+  --block-private-targets               refuse private and internal addresses and ports other than
+                                        80 and 443, as the worker does (reads ALLOWED_TARGET_HOSTS
+                                        and ALLOWED_TARGET_PORTS)
 
 checkout-sentinel init [--path checkout-sentinel.yml] [--force]
 checkout-sentinel check [--config checkout-sentinel.yml] [--json] [--out <dir>] [--block-private-targets]
@@ -65,7 +67,9 @@ checkout-sentinel check [--config checkout-sentinel.yml] [--json] [--out <dir>] 
 
 The CLI may reach private addresses by default (it runs on your machine, and `localhost` or a
 staging server on your network is a normal target). The API and worker refuse them; see
-[Outbound URL checks](#outbound-url-checks).
+[Outbound URL checks](#outbound-url-checks). `--block-private-targets` applies the worker's
+rules, the port rule included. To allow a store on another port, or a single internal host,
+set `ALLOWED_TARGET_PORTS` or `ALLOWED_TARGET_HOSTS` as you would for the worker.
 
 Exit codes: `0` every journey passed, `1` a journey failed, `2` bad arguments or config,
 `3` the run could not execute (for example Chromium did not start).
