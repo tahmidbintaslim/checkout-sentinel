@@ -194,9 +194,10 @@ Workers clean up after themselves. When a worker starts, and every 5 minutes aft
 worker at a time (a Redis lock decides) runs a housekeeping pass:
 
 - Runs still `running` 15 minutes after they started are marked `error` with
-  `Worker lost: ...`. That happens when a worker dies mid-run; BullMQ then runs the job again as
-  a new run. A lost run changes neither the monitor's health nor its alerts. If the old worker
-  was only paused and finishes later, its result is discarded.
+  `Worker lost: ...`. That happens when a worker dies mid-run. Usually BullMQ runs the job again
+  sooner, and the new run marks the old one lost as soon as it starts. A lost run changes neither
+  the monitor's health nor its alerts. If the old worker was only paused and finishes later, its
+  result is discarded.
 - Runs older than 30 days are deleted in batches, with their alert log rows, screenshots and
   traces. Each monitor keeps its latest run, the run its status points at and the runs behind
   its latest alerts.

@@ -50,7 +50,11 @@ export interface ProcessorDeps {
 export type JobOutcome =
   | { outcome: 'skipped'; reason: string }
   | { outcome: 'completed'; runId: string; status: RunResult['status']; alerts: string[] }
-  /** The result arrived after its run was marked lost or deleted; it changed nothing. */
+  /**
+   * The result arrived after its run was marked lost (superseded by a later attempt of the job,
+   * or swept) or deleted; it changed nothing. BullMQ records this outcome only when this worker
+   * still held the job's lock; otherwise BullMQ refuses the completion.
+   */
   | { outcome: 'discarded'; runId: string; status: RunResult['status']; reason: string };
 
 /** Delay before retrying a job whose store is busy; jittered so waiting jobs spread out. */
@@ -156,7 +160,14 @@ export async function processJourneyJob(
   }
 
   deps.metrics.activeJourneys.inc();
-  const run = await deps.runs.start(monitor.id, data.trigger);
+  const { run, superseded } = await deps.runs.start(monitor.id, data.trigger, job.id);
+  for (const runId of superseded) {
+    deps.metrics.runsSuperseded.inc();
+    log.warn(
+      { runId, retryRunId: run.id },
+      'run marked lost: BullMQ ran its job again before it finished',
+    );
+  }
   try {
     const result = await (deps.run ?? runJourneys)({
       url: monitor.url,
@@ -175,21 +186,7 @@ export async function processJourneyJob(
         ? { userAgentContactUrl: deps.config.userAgentContactUrl }
         : {}),
     });
-    if (!(await deps.runs.finish(run.id, result))) {
-      // The sweeper decided this worker was lost (or the run was deleted) before the result
-      // arrived. The first final status stands: a late result could be older than one a
-      // retry has applied since, so it must not move the alert state or send alerts.
-      const current = await deps.runs.get(run.id);
-      const reason = current
-        ? `run was already marked ${current.status}${current.error ? ` (${current.error})` : ''}`
-        : 'run was deleted';
-      deps.metrics.discardedResults.inc();
-      log.warn({ runId: run.id, status: result.status, reason }, 'late journey result discarded');
-      return { outcome: 'discarded', runId: run.id, status: result.status, reason };
-    }
-    deps.metrics.observeRun(result, data.trigger);
-
-    const decisions = await deps.state.withLockedState(monitor.id, async (state) => {
+    const applied = await deps.state.applyRunResult(monitor.id, run.id, result, async (state) => {
       const transition = evaluateTransition(
         {
           health: state.health,
@@ -210,8 +207,22 @@ export async function processJourneyJob(
         value: transition.alerts,
       };
     });
+    if (!applied) {
+      // The run already has a final status: a later attempt of this job superseded it, the
+      // sweep marked it lost, or it was deleted. The first final status stands. A late result
+      // can be older than one a later attempt has applied, so it must not move the alert state
+      // or send alerts.
+      const current = await deps.runs.get(run.id);
+      const reason = current
+        ? `run was already marked ${current.status}${current.error ? ` (${current.error})` : ''}`
+        : 'run was deleted';
+      deps.metrics.discardedResults.inc();
+      log.warn({ runId: run.id, status: result.status, reason }, 'late journey result discarded');
+      return { outcome: 'discarded', runId: run.id, status: result.status, reason };
+    }
+    deps.metrics.observeRun(result, data.trigger);
 
-    const alerts = await sendAlerts(deps, monitor, run.id, result, decisions);
+    const alerts = await sendAlerts(deps, monitor, run.id, result, applied.value);
     log.info(
       { runId: run.id, status: result.status, durationMs: result.durationMs, alerts },
       'journey run finished',

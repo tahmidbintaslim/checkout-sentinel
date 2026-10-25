@@ -121,39 +121,57 @@ export interface DeletedRun {
   monitorId: string;
 }
 
+/** The error stored on a run whose job BullMQ started again before the run finished. */
+export const RUN_RETRIED_ERROR = 'Worker lost: BullMQ ran the job again before this run finished';
+
+export interface StartedRun {
+  run: RunRow;
+  /** Earlier attempts of the same job that were still running; now marked lost. */
+  superseded: string[];
+}
+
+type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
 export class RunRepository {
   constructor(private readonly db: Database) {}
 
-  async start(monitorId: string, trigger: 'schedule' | 'manual'): Promise<RunRow> {
-    const [row] = await this.db.insert(runs).values({ monitorId, trigger }).returning();
-    if (!row) throw new Error('insert returned no row');
-    return row;
-  }
-
   /**
-   * Stores the run's result. A run's final status is written once: if the row is no longer
-   * "running" (the sweeper marked it lost, or it was deleted), nothing is written and null is
-   * returned, so a result that arrives late cannot overwrite the sweep's verdict.
+   * Starts a run. With a jobId, earlier runs of the same job that are still "running" are
+   * marked error first (RUN_RETRIED_ERROR), in the same transaction: BullMQ only starts a job
+   * again when it has given up on the attempt in progress (its worker stalled or the attempt
+   * threw), so that attempt's result must not be applied after this one's. Its worker finds
+   * the run already final and discards the result (see StateRepository.applyRunResult).
    */
-  async finish(runId: string, result: RunResult): Promise<RunRow | null> {
-    const failedStep = result.journeys.find((j) => j.failedStep)?.failedStep ?? null;
-    const [row] = await this.db
-      .update(runs)
-      .set({
-        status: result.status,
-        finishedAt: new Date(result.finishedAt),
-        durationMs: result.durationMs,
-        detectedPlatform: result.journeys.find((j) => j.platform)?.platform?.detected ?? null,
-        failedStep,
-        error: result.error?.message ?? null,
-        result,
-      })
-      .where(and(eq(runs.id, runId), eq(runs.status, 'running')))
-      .returning();
-    return row ?? null;
+  async start(
+    monitorId: string,
+    trigger: 'schedule' | 'manual',
+    jobId?: string,
+  ): Promise<StartedRun> {
+    return this.db.transaction(async (tx) => {
+      const superseded =
+        jobId === undefined
+          ? []
+          : await tx
+              .update(runs)
+              .set({ status: 'error', finishedAt: sql`now()`, error: RUN_RETRIED_ERROR })
+              .where(
+                and(
+                  eq(runs.jobId, jobId),
+                  eq(runs.monitorId, monitorId),
+                  eq(runs.status, 'running'),
+                ),
+              )
+              .returning({ id: runs.id });
+      const [run] = await tx
+        .insert(runs)
+        .values({ monitorId, trigger, jobId: jobId ?? null })
+        .returning();
+      if (!run) throw new Error('insert returned no row');
+      return { run, superseded: superseded.map((row) => row.id) };
+    });
   }
 
-  /** Marks a run that threw as error. Like finish, it only changes a run that is still running. */
+  /** Marks a run that threw as error. It only changes a run that is still running. */
   async fail(runId: string, message: string): Promise<void> {
     await this.db
       .update(runs)
@@ -239,6 +257,7 @@ export class RunRepository {
         id: runs.id,
         monitorId: runs.monitorId,
         trigger: runs.trigger,
+        jobId: runs.jobId,
         status: runs.status,
         startedAt: runs.startedAt,
         finishedAt: runs.finishedAt,
@@ -271,6 +290,35 @@ export interface StateUpdate {
   healthChanged: boolean;
 }
 
+type StateTransition<T> = (state: MonitorStateRow) => Promise<{ update: StateUpdate; value: T }>;
+
+async function lockState(tx: Transaction, monitorId: string): Promise<MonitorStateRow> {
+  await tx.insert(monitorState).values({ monitorId }).onConflictDoNothing();
+  const [state] = await tx
+    .select()
+    .from(monitorState)
+    .where(eq(monitorState.monitorId, monitorId))
+    .for('update');
+  if (!state) throw new Error(`monitor_state for ${monitorId} missing`);
+  return state;
+}
+
+async function writeState(tx: Transaction, monitorId: string, update: StateUpdate): Promise<void> {
+  await tx
+    .update(monitorState)
+    .set({
+      health: update.health,
+      consecutiveFailures: update.consecutiveFailures,
+      slowSteps: update.slowSteps,
+      lastRunId: update.lastRunId,
+      lastRunStatus: update.lastRunStatus,
+      lastRunAt: update.lastRunAt,
+      ...(update.healthChanged ? { healthChangedAt: update.lastRunAt } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(monitorState.monitorId, monitorId));
+}
+
 export class StateRepository {
   constructor(private readonly db: Database) {}
 
@@ -278,33 +326,49 @@ export class StateRepository {
    * Runs fn with the monitor's state row locked (SELECT ... FOR UPDATE), so two runs of the
    * same monitor finishing together cannot both decide to alert.
    */
-  async withLockedState<T>(
-    monitorId: string,
-    fn: (state: MonitorStateRow) => Promise<{ update: StateUpdate; value: T }>,
-  ): Promise<T> {
+  async withLockedState<T>(monitorId: string, fn: StateTransition<T>): Promise<T> {
     return this.db.transaction(async (tx) => {
-      await tx.insert(monitorState).values({ monitorId }).onConflictDoNothing();
-      const [state] = await tx
-        .select()
-        .from(monitorState)
-        .where(eq(monitorState.monitorId, monitorId))
-        .for('update');
-      if (!state) throw new Error(`monitor_state for ${monitorId} missing`);
-      const { update, value } = await fn(state);
-      await tx
-        .update(monitorState)
-        .set({
-          health: update.health,
-          consecutiveFailures: update.consecutiveFailures,
-          slowSteps: update.slowSteps,
-          lastRunId: update.lastRunId,
-          lastRunStatus: update.lastRunStatus,
-          lastRunAt: update.lastRunAt,
-          ...(update.healthChanged ? { healthChangedAt: update.lastRunAt } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(monitorState.monitorId, monitorId));
+      const { update, value } = await fn(await lockState(tx, monitorId));
+      await writeState(tx, monitorId, update);
       return value;
+    });
+  }
+
+  /**
+   * Stores a run's result and applies it to the monitor's state in one transaction, with the
+   * state row locked. A run's final status is written once: when the run is no longer
+   * "running" (the sweep marked it lost, a later attempt of its job superseded it, or it was
+   * deleted), nothing is written, fn is not called and null is returned. Storing and applying
+   * commit together, so an attempt cannot store its result and then apply it after a newer
+   * attempt of the same job has applied its own.
+   */
+  async applyRunResult<T>(
+    monitorId: string,
+    runId: string,
+    result: RunResult,
+    fn: StateTransition<T>,
+  ): Promise<{ run: RunRow; value: T } | null> {
+    return this.db.transaction(async (tx) => {
+      // State row before run row: deleting a monitor cascades to monitor_state before runs,
+      // and taking the two in the other order deadlocks with that delete.
+      const state = await lockState(tx, monitorId);
+      const [run] = await tx
+        .update(runs)
+        .set({
+          status: result.status,
+          finishedAt: new Date(result.finishedAt),
+          durationMs: result.durationMs,
+          detectedPlatform: result.journeys.find((j) => j.platform)?.platform?.detected ?? null,
+          failedStep: result.journeys.find((j) => j.failedStep)?.failedStep ?? null,
+          error: result.error?.message ?? null,
+          result,
+        })
+        .where(and(eq(runs.id, runId), eq(runs.status, 'running')))
+        .returning();
+      if (!run) return null;
+      const { update, value } = await fn(state);
+      await writeState(tx, monitorId, update);
+      return { run, value };
     });
   }
 }

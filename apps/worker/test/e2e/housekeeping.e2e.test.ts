@@ -2,12 +2,19 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { Queue, Worker } from 'bullmq';
 import { pino } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { MonitorSpecSchema } from '@checkout-sentinel/core';
+import {
+  MonitorSpecSchema,
+  TargetGuard,
+  runJourneys,
+  targetPolicyFromEnv,
+} from '@checkout-sentinel/core';
 import {
   AlertDeliveryRepository,
   MonitorRepository,
+  RUN_RETRIED_ERROR,
   RunRepository,
   StateRepository,
   createDb,
@@ -22,18 +29,22 @@ import {
   type FixtureStore,
   type WebhookReceiver,
 } from '@checkout-sentinel/fixtures';
-import { JourneyScheduler, createRedis } from '@checkout-sentinel/jobs';
+import { JourneyScheduler, createRedis, type JourneyJob } from '@checkout-sentinel/jobs';
 import {
+  BrowserPool,
   DEFAULT_STALE_AFTER_MS,
   HOUSEKEEPING_LOCK_KEY,
   Housekeeping,
+  StoreLock,
   WorkerMetrics,
   housekeepingLock,
   loadConfig,
+  processJourneyJob,
   startWorker,
   workerLostMessage,
   type HousekeepingOptions,
   type JobOutcome,
+  type ProcessorDeps,
   type RunningWorker,
 } from '@checkout-sentinel/worker';
 
@@ -52,11 +63,13 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
   let scheduler: JourneyScheduler;
   let running: RunningWorker;
   let broken: FixtureStore;
+  let healthy: FixtureStore;
   let hooks: WebhookReceiver;
   let artifacts: string;
   let monitors: MonitorRepository;
   let runs: RunRepository;
   let deliveries: AlertDeliveryRepository;
+  let browsers: BrowserPool;
 
   beforeAll(async () => {
     db = createDb(services.databaseUrl);
@@ -66,11 +79,13 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     scheduler = new JourneyScheduler(redis);
     await scheduler.queue.obliterate({ force: true });
     broken = await startFixtureStore({ platform: 'shopify', variant: 'mobile-hidden' });
+    healthy = await startFixtureStore({ platform: 'shopify' });
     hooks = await startWebhookReceiver();
     artifacts = await mkdtemp(path.join(tmpdir(), 'checkout-sentinel-housekeeping-'));
     monitors = new MonitorRepository(db.db);
     runs = new RunRepository(db.db);
     deliveries = new AlertDeliveryRepository(db.db);
+    browsers = new BrowserPool();
     running = await startWorker(
       loadConfig({
         DATABASE_URL: services.databaseUrl,
@@ -94,12 +109,13 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
 
   afterAll(async () => {
     await running?.shutdown();
+    await browsers?.close();
     await scheduler?.queue.obliterate({ force: true }).catch(() => undefined);
     await scheduler?.close();
     await redis?.del(HOUSEKEEPING_LOCK_KEY).catch(() => undefined);
     redis?.disconnect();
     await db?.close();
-    await Promise.all([broken?.close(), hooks?.close()]);
+    await Promise.all([broken?.close(), healthy?.close(), hooks?.close()]);
     if (artifacts) await rm(artifacts, { recursive: true, force: true });
   });
 
@@ -124,19 +140,52 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     return { pass, metrics };
   }
 
+  /** What startWorker gives processJourneyJob, for tests that drive the processor themselves. */
+  function processorDeps(overrides: Partial<ProcessorDeps> = {}): ProcessorDeps {
+    return {
+      monitors,
+      runs,
+      state: new StateRepository(db.db),
+      deliveries,
+      lock: new StoreLock(redis, 1, 600_000, `test-store-lock-${randomUUID()}`),
+      browsers,
+      metrics: new WorkerMetrics({ defaultMetrics: false }),
+      logger: pino({ level: 'silent' }),
+      removeScheduler: async () => undefined,
+      targetGuard: new TargetGuard(
+        targetPolicyFromEnv(
+          loadConfig({ DATABASE_URL: services.databaseUrl, ALLOW_PRIVATE_TARGETS: 'true' }),
+        ),
+      ),
+      config: {
+        artifactsDir: artifacts,
+        alertTimeoutMs: 5_000,
+        navigationTimeoutMs: 30_000,
+        stepTimeoutMs: 3_000,
+      },
+      ...overrides,
+    };
+  }
+
   async function createMonitor(name: string, url = broken.productUrl) {
     return monitors.create(MonitorSpecSchema.parse({ name, url, devices: ['mobile'] }));
   }
 
   /** Inserts a run that started `age` ago (a Postgres interval) by the database clock. */
-  async function seedRun(monitorId: string, status: SeedStatus, age: string): Promise<string> {
+  async function seedRun(
+    monitorId: string,
+    status: SeedStatus,
+    age: string,
+    jobId: string | null = null,
+  ): Promise<string> {
     const { rows } = await db.pool.query<{ id: string }>(
-      `insert into runs (monitor_id, trigger, status, started_at, finished_at)
+      `insert into runs (monitor_id, trigger, status, started_at, finished_at, job_id)
        values ($1, 'schedule', $2::run_status, now() - $3::interval,
                case when $2::run_status = 'running' then null
-                    else now() - $3::interval + interval '5 seconds' end)
+                    else now() - $3::interval + interval '5 seconds' end,
+               $4)
        returning id`,
-      [monitorId, status, age],
+      [monitorId, status, age, jobId],
     );
     const id = rows[0]?.id;
     if (!id) throw new Error('insert returned no row');
@@ -315,7 +364,7 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     expect(await runIds(monitor.id)).toHaveLength(2);
   });
 
-  it('discards a result that arrives after its run was swept, and applies the retry normally', async () => {
+  it('discards a result that arrives after its run was swept, and applies the next run normally', async () => {
     const monitor = await monitors.create(
       MonitorSpecSchema.parse({
         name: 'Slow worker',
@@ -327,8 +376,8 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     );
     const jobId = await scheduler.enqueueNow(monitor.id);
     // While the journey runs (the hidden button keeps it busy for about two seconds), its row
-    // is made to look an hour old and swept, as another worker would sweep it if this one had
-    // stopped renewing its job lock.
+    // is made to look an hour old and swept, as the sweep treats a live run that outlived
+    // RUN_STALE_AFTER_MS. This worker keeps its job lock, so BullMQ records its outcome.
     const runId = await waitFor(async () => {
       const [latest] = (await runs.listForMonitor(monitor.id, 1)).items;
       return latest?.status === 'running' ? latest.id : null;
@@ -364,25 +413,181 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
     expect(metrics).toContain('checkout_sentinel_discarded_results_total 1');
     expect(metrics).not.toContain('checkout_sentinel_runs_total{status="failed"');
 
-    // BullMQ runs a job again when its worker is lost (stalled) or it threw. Each attempt
-    // starts its own run, so the retry is applied as usual and the swept run stays as it is.
-    const retryJobId = await scheduler.enqueueNow(monitor.id);
-    const retry = await jobOutcome(retryJobId);
-    expect(retry).toMatchObject({
+    // The next job of the monitor starts its own run, so its result is applied as usual and
+    // the swept run stays as it is. A real BullMQ retry of a stalled job is covered below.
+    const nextJobId = await scheduler.enqueueNow(monitor.id);
+    const next = await jobOutcome(nextJobId);
+    expect(next).toMatchObject({
       outcome: 'completed',
       status: 'failed',
       alerts: ['failure:webhook'],
     });
-    const retryRunId = retry.outcome === 'completed' ? retry.runId : '';
+    const nextRunId = next.outcome === 'completed' ? next.runId : '';
     expect((await monitors.get(monitor.id))?.state).toMatchObject({
       health: 'failing',
       consecutiveFailures: 1,
-      lastRunId: retryRunId,
+      lastRunId: nextRunId,
       lastRunStatus: 'failed',
     });
     expect((await runs.get(runId))?.status).toBe('error');
-    expect((await deliveries.listForMonitor(monitor.id)).map((d) => d.runId)).toEqual([retryRunId]);
+    expect((await deliveries.listForMonitor(monitor.id)).map((d) => d.runId)).toEqual([nextRunId]);
     expect((await hooks.waitFor(1)).map((h) => h.path)).toEqual(['/late']);
+  });
+
+  it('marks the running runs of earlier attempts of the same job lost when the job starts again', async () => {
+    const monitor = await createMonitor('Retried job');
+    const other = await createMonitor('Other monitor');
+    const stalled = await seedRun(monitor.id, 'running', '3 minutes', 'job-1');
+    const finished = await seedRun(monitor.id, 'failed', '4 minutes', 'job-1');
+    const otherJob = await seedRun(monitor.id, 'running', '1 minute', 'job-2');
+    const noJob = await seedRun(monitor.id, 'running', '2 minutes');
+    const otherMonitor = await seedRun(other.id, 'running', '1 minute', 'job-1');
+    const finishedBefore = await runs.get(finished);
+
+    const { run, superseded } = await runs.start(monitor.id, 'schedule', 'job-1');
+    expect(superseded).toEqual([stalled]);
+    expect(run).toMatchObject({ monitorId: monitor.id, status: 'running', jobId: 'job-1' });
+    const lost = await runs.get(stalled);
+    expect(lost).toMatchObject({ status: 'error', error: RUN_RETRIED_ERROR, result: null });
+    expect(lost?.finishedAt).toBeInstanceOf(Date);
+    expect(await runs.get(finished)).toEqual(finishedBefore);
+    for (const id of [otherJob, noJob, otherMonitor, run.id]) {
+      expect((await runs.get(id))?.status).toBe('running');
+    }
+    // A run started without a job id supersedes nothing.
+    expect((await runs.start(monitor.id, 'manual')).superseded).toEqual([]);
+    expect((await runs.get(run.id))?.status).toBe('running');
+  });
+
+  it('discards a stalled attempt that finishes after BullMQ ran the job again, before any sweep', async () => {
+    const monitor = await monitors.create(
+      MonitorSpecSchema.parse({
+        name: 'Stalled worker',
+        url: healthy.productUrl,
+        devices: ['mobile'],
+        alertAfterFailures: 1,
+        alerts: [{ type: 'webhook', url: hooks.url('/stalled') }],
+      }),
+    );
+    // A queue of its own, so the worker started in beforeAll does not take the job.
+    const queue = new Queue<JourneyJob, JobOutcome>(`stall-${randomUUID()}`, {
+      connection: redis,
+    });
+    const stallingConnection = createRedis(services.redisUrl);
+    const retryingConnection = createRedis(services.redisUrl);
+    const metrics = new WorkerMetrics({ defaultMetrics: false });
+    const base = processorDeps({
+      // PER_STORE_CONCURRENCY=2: the retry does not wait for the stalled attempt's store slot.
+      lock: new StoreLock(redis, 2, 600_000, `stall-lock-${randomUUID()}`),
+      metrics,
+    });
+
+    // Attempt 1 finds the store broken (a real journey against the mobile-hidden fixture), then
+    // its worker stops responding before it stores the result. It does not renew its job lock,
+    // so BullMQ declares the job stalled and a second worker runs it again. By then the store
+    // works (the healthy fixture, the monitor's own URL).
+    let resume!: () => void;
+    const paused = new Promise<void>((resolve) => (resume = resolve));
+    let attemptOneDone!: (runId: string) => void;
+    const attemptOneResult = new Promise<string>((resolve) => (attemptOneDone = resolve));
+    const lateOutcomes: JobOutcome[] = [];
+    const stalledWorkerErrors: Error[] = [];
+    const stalling = new Worker<JourneyJob, JobOutcome>(
+      queue.name,
+      async (job, token) => {
+        const outcome = await processJourneyJob(
+          {
+            ...base,
+            run: async (options) => {
+              const result = await runJourneys({ ...options, url: broken.productUrl });
+              attemptOneDone(options.runId ?? '');
+              await paused;
+              return result;
+            },
+          },
+          job,
+          token,
+        );
+        lateOutcomes.push(outcome);
+        return outcome;
+      },
+      {
+        connection: stallingConnection,
+        lockDuration: 1_000,
+        skipLockRenewal: true,
+        skipStalledCheck: true,
+      },
+    );
+    stalling.on('error', (error) => stalledWorkerErrors.push(error));
+    let retrying: Worker<JourneyJob, JobOutcome> | null = null;
+
+    try {
+      const job = await queue.add('journey', { monitorId: monitor.id, trigger: 'manual' });
+      const firstRunId = await attemptOneResult;
+      expect((await runs.get(firstRunId))?.status).toBe('running');
+
+      retrying = new Worker<JourneyJob, JobOutcome>(
+        queue.name,
+        (retried, token) => processJourneyJob(base, retried, token),
+        { connection: retryingConnection, stalledInterval: 300 },
+      );
+      const retried = await waitFor(async () => {
+        const current = await queue.getJob(job.id ?? '');
+        return current && (await current.isCompleted()) ? current.returnvalue : null;
+      }, 'the retry to complete');
+      expect(retried).toMatchObject({ outcome: 'completed', status: 'passed', alerts: [] });
+      const retryRunId = retried.outcome === 'completed' ? retried.runId : '';
+      expect(retryRunId).not.toBe(firstRunId);
+      const afterRetry = (await monitors.get(monitor.id))?.state;
+      expect(afterRetry).toMatchObject({
+        health: 'passing',
+        consecutiveFailures: 0,
+        lastRunId: retryRunId,
+      });
+      // Nothing is stale yet: the default threshold is 15 minutes.
+      expect(await housekeeping().pass.runOnce()).toMatchObject({ swept: 0 });
+
+      // The first worker resumes with its older, failed result.
+      resume();
+      await waitFor(async () => lateOutcomes[0], 'the stalled attempt to return');
+      expect((await monitors.get(monitor.id))?.state).toEqual(afterRetry);
+      expect(await deliveries.listForMonitor(monitor.id)).toEqual([]);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(hooks.received.filter((h) => h.path === '/stalled')).toEqual([]);
+      expect(lateOutcomes).toEqual([
+        {
+          outcome: 'discarded',
+          runId: firstRunId,
+          status: 'failed',
+          reason: `run was already marked error (${RUN_RETRIED_ERROR})`,
+        },
+      ]);
+      // The retry marked the stalled attempt's run lost when it started; the late result was
+      // not stored.
+      expect(await runs.get(firstRunId)).toMatchObject({
+        status: 'error',
+        error: RUN_RETRIED_ERROR,
+        failedStep: null,
+        result: null,
+      });
+      expect(await runs.get(retryRunId)).toMatchObject({ status: 'passed', jobId: job.id });
+      const text = await metrics.registry.metrics();
+      expect(text).toContain('checkout_sentinel_runs_superseded_total 1');
+      expect(text).toContain('checkout_sentinel_discarded_results_total 1');
+      // BullMQ refuses the stalled worker's completion: the retry owns the job now.
+      await waitFor(
+        async () => stalledWorkerErrors.find((e) => /Missing lock|Lock mismatch/.test(e.message)),
+        'BullMQ to refuse the stalled completion',
+      );
+      expect((await queue.getJob(job.id ?? ''))?.returnvalue).toEqual(retried);
+    } finally {
+      resume();
+      await Promise.all([stalling.close(), retrying?.close()]);
+      await queue.obliterate({ force: true }).catch(() => undefined);
+      await queue.close();
+      stallingConnection.disconnect();
+      retryingConnection.disconnect();
+    }
   });
 
   it('sweeps once when a worker starts', async () => {

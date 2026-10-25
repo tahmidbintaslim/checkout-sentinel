@@ -58,6 +58,12 @@ export const runs = pgTable(
       .notNull()
       .references(() => monitors.id, { onDelete: 'cascade' }),
     trigger: runTrigger('trigger').notNull(),
+    /**
+     * The BullMQ job this run is an attempt of. When BullMQ runs a job again, the new attempt
+     * marks the job's earlier runs that are still "running" as lost. Null for runs started
+     * before this column existed.
+     */
+    jobId: text('job_id'),
     status: runStatus('status').notNull().default('running'),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
@@ -76,6 +82,10 @@ export const runs = pgTable(
     // The stale-run sweep only looks at running rows; this index holds just those.
     index('runs_running_started_idx')
       .on(table.startedAt)
+      .where(sql`${table.status} = 'running'`),
+    // A new attempt of a job looks up the job's earlier attempts that are still running.
+    index('runs_running_job_idx')
+      .on(table.jobId)
       .where(sql`${table.status} = 'running'`),
   ],
 );

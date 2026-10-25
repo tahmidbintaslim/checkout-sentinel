@@ -51,6 +51,12 @@ export class WorkerMetrics {
     registers: [this.registry],
   });
 
+  readonly runsSuperseded = new Counter({
+    name: 'checkout_sentinel_runs_superseded_total',
+    help: 'Runs marked error ("Worker lost") because BullMQ ran their job again before they finished',
+    registers: [this.registry],
+  });
+
   readonly discardedResults = new Counter({
     name: 'checkout_sentinel_discarded_results_total',
     help: 'Results discarded because their run had already been marked lost or deleted',
