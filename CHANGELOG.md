@@ -31,6 +31,21 @@ Result schema version: 1 (unchanged).
 - Step details list requests the guard refused (`blockedRequests`). A refused navigation or
   redirect hop fails the step and is named in its message; a refused subresource does not.
 - Fixture variant `redirect-to-loopback`.
+- Stale-run sweep in the worker. Runs still `running` `RUN_STALE_AFTER_MS` after they started
+  (default 15 minutes, raised when the timeouts allow longer runs) are marked `error` with
+  `Worker lost: ...`. Health, failure counts and alerts are not affected. It runs when a worker
+  starts and every `HOUSEKEEPING_INTERVAL_MS` (default 5 minutes; `0` turns it off on that
+  worker), under a Redis lock so one pass runs at a time.
+- Retention in the same pass. Runs older than `RUN_RETENTION_DAYS` (default 30; `0` keeps
+  everything) are deleted in batches with their alert deliveries and artifact directories. Each
+  monitor keeps its latest run, the run its status points at and the run behind its latest alert
+  of each kind. Artifact directories of deleted monitors are removed too.
+- Worker metrics `checkout_sentinel_runs_swept_total`, `checkout_sentinel_discarded_results_total`,
+  `checkout_sentinel_runs_deleted_total`, `checkout_sentinel_artifact_dirs_deleted_total` and
+  `checkout_sentinel_housekeeping_failures_total{task}`.
+- Migration `0001_run_housekeeping_indexes` adds indexes on `runs (started_at)` and on
+  `runs (started_at)` for running rows. It does not build them `CONCURRENTLY`, so writes to `runs`
+  wait while it runs.
 
 ### Changed
 
@@ -38,6 +53,9 @@ Result schema version: 1 (unchanged).
   (`HTTP 302 (redirects are not followed)`) instead of a retried network error.
 - Local development and tests against fixture stores on 127.0.0.1 need
   `ALLOW_PRIVATE_TARGETS=true` on the API and worker.
+- A run's final status is written once. A result that arrives after its run was marked lost (or
+  deleted) is discarded: no state change, no alert, and the job completes with outcome
+  `discarded`. A worker exception no longer overwrites a run that already has a final status.
 
 ## [0.1.0] - 2026-10-25
 

@@ -36,7 +36,7 @@ flowchart TB
 | `packages/jobs` | The queue contract between API and worker: queue name, job payload schema, scheduler ids, default job options and `JourneyScheduler`.                                                                                                                                                                                          | bullmq, ioredis              |
 | `apps/cli`      | Human and JSON output, YAML config, exit codes. Runs journeys in process.                                                                                                                                                                                                                                                      | core                         |
 | `apps/api`      | REST API, validation (including the input-time SSRF check), OpenAPI, auth, schedule reconciliation, migrations on boot, API metrics.                                                                                                                                                                                           | core, db, jobs, NestJS       |
-| `apps/worker`   | Executes jobs: store lock, browser pool, journey (with the use-time SSRF check), persistence, alert state machine, guarded delivery, worker metrics.                                                                                                                                                                           | core, db, jobs               |
+| `apps/worker`   | Executes jobs: store lock, browser pool, journey (with the use-time SSRF check), persistence, alert state machine, guarded delivery, worker metrics. Housekeeping: stale-run sweep and retention.                                                                                                                              | core, db, jobs               |
 | `test/fixtures` | Shopify-like and WooCommerce-like Express stores with broken variants, a webhook receiver and Postgres/Redis probes for e2e tests.                                                                                                                                                                                             | express, pg, ioredis         |
 
 The boundary that matters most is `core`. It takes options and returns a `RunResult`; it can be
@@ -161,6 +161,80 @@ they describe our infrastructure, not the store. The transition function is pure
 transaction holding a row lock on `monitor_state`, so two runs finishing together cannot both
 alert.
 
+## Housekeeping: stuck runs and retention
+
+Each worker tries a housekeeping pass when it starts and then every `HOUSEKEEPING_INTERVAL_MS`
+(default 5 minutes; `0` turns it off on that worker). A Redis lock (`checkout-sentinel:housekeeping`,
+`SET NX PX` with a 5 minute TTL and a compare-and-delete release) lets one pass run at a time
+across all workers; a worker that finds the lock taken skips that pass. A pass runs two tasks in
+this order. A failure in one is logged and counted, and does not stop the other. The code is in
+`apps/worker/src/housekeeping.ts` and the queries in `RunRepository`.
+
+**Stale-run sweep.** A worker that dies mid-run leaves its run row in `running`. BullMQ sees the
+job's lock expire and runs the job again, which starts a new run, so the old row would stay
+`running` forever. The sweep marks every run still `running` `RUN_STALE_AFTER_MS` after it
+started as `error`, with `Worker lost: the run was still running 15 min after it started`. It
+compares `started_at` with the database clock, so the workers' clocks do not matter.
+
+Without `RUN_STALE_AFTER_MS` the threshold is 15 minutes, or the worker's estimate of its
+longest run when that is longer: 2 devices × 6 steps × (`NAVIGATION_TIMEOUT_MS` +
+`STEP_TIMEOUT_MS`) + 2 minutes, which is 11 minutes with the default timeouts. The estimate is
+not a hard bound, which is why the default keeps a margin above it. A worker logs a warning at
+start when `RUN_STALE_AFTER_MS` is set below the estimate. Give every worker the same timeouts
+and threshold: the worker that sweeps applies its own.
+
+The sweep never changes `monitor_state`. Like every `error` run, a swept run says nothing about
+the store: health, the failure count, slow steps and the last run stay as they were, and no alert
+is sent.
+
+**A result that arrives after the sweep.** A worker can be slow rather than dead, for example
+after a long pause, or when it lost Redis but not Postgres. Its run is swept, BullMQ retries the
+job on another worker, and then the original journey finishes. The rule is that a run's final
+status is written once:
+
+- `RunRepository.finish` and `fail` change a run only while it is still `running`. The sweep and a
+  finishing worker cannot both win: the sweep skips rows that a finishing worker holds locked
+  (`FOR UPDATE SKIP LOCKED`), and a finish that waits for the sweep's commit then finds the row no
+  longer `running`.
+- A late result is discarded. The run stays `error` ("Worker lost"), the result is not stored, the
+  state machine does not see it and no alert is sent. The job completes with outcome `discarded`,
+  so BullMQ does not retry it, and the worker logs a warning and counts it in
+  `checkout_sentinel_discarded_results_total`. Applying it could move the state backwards: the
+  retry may already have applied a newer result.
+- Every attempt BullMQ makes starts its own run row, so the retry's result is applied as usual.
+
+`apps/worker/test/e2e/housekeeping.e2e.test.ts` runs a real journey, sweeps its run while it is in
+progress, and checks all three.
+
+**Retention.** Runs that started more than `RUN_RETENTION_DAYS` ago (default 30, database
+clock) are deleted in batches of 500, oldest first, at most 20 batches per pass; the rest waits for
+the next pass. `0` keeps run history forever. A run's alert deliveries are deleted with it
+(foreign key cascade). These runs are kept whatever their age:
+
+- each monitor's latest run, so its history is never empty;
+- the run `monitor_state.last_run_id` points at;
+- the run behind each monitor's latest alert of each kind (failure, recovery, slow), so the
+  delivery rows of the current state stay. The failure alert of an incident that is still open
+  stays in `GET /monitors/:id/alerts`, however long the incident lasts;
+- runs still `running`. The sweep runs first and finishes the stale ones.
+
+After deleting rows, the pass removes each deleted run's artifact directory
+(`<ARTIFACTS_DIR>/<monitorId>/<runId>/`) and the directories of monitors that no longer exist
+(deleting a monitor through the API deletes its runs at once). Only directories named with a UUID
+are touched. Rows go first: if the worker stops in between, files stay behind, never rows that
+point at missing files. Files are removed from the disk of the worker that runs the pass, so
+workers need one shared artifacts volume, as in the compose stack, for retention to reach every
+file.
+
+Two indexes keep a pass cheap: a partial index on `runs (started_at) where status = 'running'`
+for the sweep, and `runs (started_at)` for retention.
+
+**Metrics** on each worker's `/metrics`: `checkout_sentinel_runs_swept_total`,
+`checkout_sentinel_discarded_results_total`, `checkout_sentinel_runs_deleted_total`,
+`checkout_sentinel_artifact_dirs_deleted_total` and
+`checkout_sentinel_housekeeping_failures_total{task}` (`sweep`, `retention`, `artifacts`,
+`pass`). A pass counts on the worker that ran it, so sum them across workers.
+
 ## Outbound requests and SSRF
 
 Every URL the system fetches for a user (product pages, webhooks, Slack) goes through one
@@ -213,20 +287,22 @@ flowchart LR
 
 ## Failure handling
 
-| Failure                                      | Behavior                                                                                                                                                                                      |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A journey step fails                         | A normal result: run stored as `failed`, state machine decides about alerts. The job succeeds.                                                                                                |
-| Chromium fails to launch or crashes mid-run  | `runJourneys` returns status `error` with the message; no alert. The browser pool drops a disconnected browser and launches a new one on the next job.                                        |
-| Exception in the worker (database down, bug) | The run is marked `error`, the job throws, BullMQ retries once after 30 seconds (exponential backoff).                                                                                        |
-| Worker killed mid-job                        | BullMQ's lock expires and the job is picked up again as stalled. The orphaned run row stays `running`; its `started_at` shows when.                                                           |
-| Store busy (another run holds its lock)      | Job moved back to delayed with 15 to 30 seconds of jitter. Not counted as an attempt.                                                                                                         |
-| Alert endpoint down                          | Two attempts per delivery (retrying network errors and 5xx, not 4xx), then recorded as `failed` in `alert_deliveries` and counted in metrics. The run itself is not retried.                  |
-| Job retried after alerts were sent           | The unique delivery key makes the second send a no-op.                                                                                                                                        |
-| Monitor URL refused at use time              | The URL is private now (DNS changed, or the monitor predates the guard): run stored as `error` with `Target blocked: ...`; no state change, no alert.                                         |
-| Page redirects or loads from a private host  | The egress proxy refuses the connection. A navigation fails the step with `Blocked a request to ...`; a refused subresource is only listed in `details.blockedRequests`.                      |
-| Alert URL refused at send time               | Recorded as `failed` with `Blocked: ...` and counted in metrics; not retried. A 3xx answer is also final: deliveries never follow redirects.                                                  |
-| SIGTERM                                      | The worker stops taking jobs, waits for running journeys (compose gives it 90 seconds), then closes Chromium, Redis and Postgres. The API stops accepting connections, then closes its pools. |
-| Concurrent API boots                         | Migrations run under a Postgres advisory lock.                                                                                                                                                |
+| Failure                                          | Behavior                                                                                                                                                                                                                                              |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A journey step fails                             | A normal result: run stored as `failed`, state machine decides about alerts. The job succeeds.                                                                                                                                                        |
+| Chromium fails to launch or crashes mid-run      | `runJourneys` returns status `error` with the message; no alert. The browser pool drops a disconnected browser and launches a new one on the next job.                                                                                                |
+| Exception in the worker (database down, bug)     | The run is marked `error` if it is still `running`, the job throws, BullMQ retries once after 30 seconds (exponential backoff). The retry is a new run.                                                                                               |
+| Worker killed mid-job                            | BullMQ's lock expires and the job is picked up again as stalled, as a new run. The orphaned row stays `running` until the sweep marks it `error` (`Worker lost: ...`) `RUN_STALE_AFTER_MS` after it started. Health and alerts are not affected.      |
+| Worker paused, its run swept, then it finishes   | The late result is discarded: the run stays `Worker lost`, no state change, no alert, job outcome `discarded`. The retry's own run is applied as usual.                                                                                               |
+| Housekeeping pass fails (database or Redis down) | Logged and counted in `checkout_sentinel_housekeeping_failures_total`; the next pass tries again. If a worker dies mid-pass, the lock frees itself after its 5 minute TTL.                                                                            |
+| Store busy (another run holds its lock)          | Job moved back to delayed with 15 to 30 seconds of jitter. Not counted as an attempt.                                                                                                                                                                 |
+| Alert endpoint down                              | Two attempts per delivery (retrying network errors and 5xx, not 4xx), then recorded as `failed` in `alert_deliveries` and counted in metrics. The run itself is not retried.                                                                          |
+| Job retried after alerts were sent               | The unique delivery key makes the second send a no-op.                                                                                                                                                                                                |
+| Monitor URL refused at use time                  | The URL is private now (DNS changed, or the monitor predates the guard): run stored as `error` with `Target blocked: ...`; no state change, no alert.                                                                                                 |
+| Page redirects or loads from a private host      | The egress proxy refuses the connection. A navigation fails the step with `Blocked a request to ...`; a refused subresource is only listed in `details.blockedRequests`.                                                                              |
+| Alert URL refused at send time                   | Recorded as `failed` with `Blocked: ...` and counted in metrics; not retried. A 3xx answer is also final: deliveries never follow redirects.                                                                                                          |
+| SIGTERM                                          | The worker stops taking jobs and starting housekeeping passes, waits for running journeys and a pass in progress (compose gives it 90 seconds), then closes Chromium, Redis and Postgres. The API stops accepting connections, then closes its pools. |
+| Concurrent API boots                             | Migrations run under a Postgres advisory lock.                                                                                                                                                                                                        |
 
 ## Scaling notes
 
@@ -248,9 +324,9 @@ give full isolation of cookies and carts. Next steps if needed: recycle the brow
 journeys to cap memory growth, and move to a pool of several browsers per process, or to a remote
 browser service, when one process saturates.
 
-**Queue and database.** Run history grows linearly with monitors times frequency. Retention is the
-first lever (a scheduled job that deletes or archives runs older than N days; not in v0.1), then
-partitioning `runs` by month. The `result` JSONB can move to object storage with only a pointer
+**Queue and database.** Run history grows linearly with monitors times frequency. Retention bounds
+it (`RUN_RETENTION_DAYS`, see [Housekeeping](#housekeeping-stuck-runs-and-retention)); the next
+lever is partitioning `runs` by month, which would turn retention into dropping old partitions. The `result` JSONB can move to object storage with only a pointer
 kept in Postgres. Redis holds only queue state; completed and failed jobs are trimmed by count and
 age.
 

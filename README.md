@@ -188,6 +188,30 @@ set `ALLOW_PRIVATE_TARGETS=true` on both the API and the worker. Do not do that 
 people can create monitors. `ALLOWED_TARGET_HOSTS` and `ALLOWED_TARGET_PORTS` allow single
 internal hosts or extra ports instead. Details are in [SECURITY.md](SECURITY.md#ssrf-protection).
 
+### Run history and stuck runs
+
+Workers clean up after themselves. When a worker starts, and every 5 minutes after that, one
+worker at a time (a Redis lock decides) runs a housekeeping pass:
+
+- Runs still `running` 15 minutes after they started are marked `error` with
+  `Worker lost: ...`. That happens when a worker dies mid-run; BullMQ then runs the job again as
+  a new run. A lost run changes neither the monitor's health nor its alerts. If the old worker
+  was only paused and finishes later, its result is discarded.
+- Runs older than 30 days are deleted in batches, with their alert log rows, screenshots and
+  traces. Each monitor keeps its latest run, the run its status points at and the runs behind
+  its latest alerts.
+
+| Variable                   | Default                            | Meaning                                                                        |
+| -------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
+| `RUN_STALE_AFTER_MS`       | 15 minutes, more for long timeouts | A run still `running` this long after it started is marked lost.               |
+| `RUN_RETENTION_DAYS`       | `30`                               | Days of run history to keep. `0` keeps everything.                             |
+| `HOUSEKEEPING_INTERVAL_MS` | `300000`                           | How often each worker tries a pass. `0` turns housekeeping off on that worker. |
+
+Counts are in the worker metrics (`checkout_sentinel_runs_swept_total`,
+`checkout_sentinel_runs_deleted_total` and others). The rules, including what happens when a
+lost run finishes after all, are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#housekeeping-stuck-runs-and-retention).
+
 ## Architecture
 
 ```mermaid
@@ -316,6 +340,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
   abandoned-cart or analytics tools may count it. Filter on the user agent.
 - The API has a single static bearer token. There are no users, teams or roles yet.
 - Alert channels are a generic webhook and Slack. Email and SMS are not built in.
+- Retention deletes artifact files only from the disk of the worker that runs the pass. Workers
+  need one shared artifacts volume (the compose stack has one) for old screenshots and traces to
+  be removed.
 
 ## Roadmap
 
