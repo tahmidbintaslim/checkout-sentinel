@@ -1,0 +1,34 @@
+{
+  "name": "@checkout-sentinel/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BullMQ worker that runs checkout journeys, stores results and sends state-change alerts.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@checkout-sentinel/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@checkout-sentinel/core": "workspace:*",
+    "@checkout-sentinel/db": "workspace:*",
+    "@checkout-sentinel/jobs": "workspace:*",
+    "bullmq": "6.4.1",
+    "ioredis": "6.0.0",
+    "pino": "^10.4.0",
+    "playwright": "1.64.1",
+    "prom-client": "^15.1.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@checkout-sentinel/fixtures": "workspace:*"
+  }
+}

@@ -380,3 +380,7 @@ export async function startFixtureStore(options: FixtureStoreOptions): Promise<F
       }),
   };
 }
+
+export { probeTestServices, truncateAll, TEST_DATABASE_URL, TEST_REDIS_URL } from './services.js';
+export type { ServiceAvailability } from './services.js';
+export { startWebhookReceiver, type WebhookReceiver } from './webhook-receiver.js';
