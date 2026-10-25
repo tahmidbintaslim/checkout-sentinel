@@ -6,7 +6,7 @@ import { launchBrowser } from './browser.js';
 import { readCart } from './cart.js';
 import { collectPageSignals, describeSignals, detectPlatform } from './detect.js';
 import { DEVICE_PROFILES, resolveDevices, type DeviceSelection } from './devices.js';
-import { EgressProxy, type EgressEvent } from './egress-proxy.js';
+import { EgressProxy, targetOfUrl, type EgressEvent } from './egress-proxy.js';
 import { TimeoutsSchema, type Timeouts } from './monitor.js';
 import { StepRecorder } from './recorder.js';
 import { installOrderGuard } from './safety.js';
@@ -336,16 +336,19 @@ interface ResolvedOptions {
 const MAX_BLOCKED_LISTED = 10;
 
 /**
- * Folds the egress proxy's events for one step into its result: blocked requests are listed
- * in the details, and a failed step's message names the block (or the connection failure to
- * the store's own host), which Chromium would otherwise report only as a tunnel or HTTP error.
+ * Folds the egress proxy's events for one step into its result. Every blocked request is
+ * listed in the details. A failed step's message also names a block or connection failure,
+ * which Chromium would otherwise report only as a tunnel or HTTP error, but only one that can
+ * have failed the step: on a main-frame navigation of this step (redirect hops included) or
+ * on the store's own host and port, which the cart reads use. A refused image, script or
+ * frame does not fail a step, so it does not replace the step's own message either.
  */
 function applyEgressEvents(
   status: StepResult['status'],
   message: string | undefined,
   details: StepResult['details'],
   events: readonly EgressEvent[],
-  storeHost: string,
+  causes: ReadonlySet<string>,
 ): string | undefined {
   const blocked = events.filter((event) => event.outcome === 'blocked');
   if (blocked.length > 0) {
@@ -356,15 +359,15 @@ function applyEgressEvents(
     details.blockedRequests = listed.join('; ');
   }
   if (status !== 'failed') return message;
-  const firstBlocked = blocked[0];
-  if (firstBlocked) {
-    return `Blocked a request to ${firstBlocked.target}: ${firstBlocked.reason}${message ? ` (${message})` : ''}`;
+  const blockedCause = blocked.find((event) => causes.has(event.target));
+  if (blockedCause) {
+    return `Blocked a request to ${blockedCause.target}: ${blockedCause.reason}${message ? ` (${message})` : ''}`;
   }
-  const storeFailure = events.find(
-    (event) => event.outcome === 'failed' && event.host === storeHost,
+  const failedCause = events.find(
+    (event) => event.outcome === 'failed' && causes.has(event.target),
   );
-  if (storeFailure) {
-    return `${message ?? 'Step failed'} (${storeFailure.target}: ${storeFailure.reason})`;
+  if (failedCause) {
+    return `${message ?? 'Step failed'} (${failedCause.target}: ${failedCause.reason})`;
   }
   return message;
 }
@@ -400,6 +403,27 @@ async function runJourney(
 
   const page = await context.newPage();
   recorder.attach(page);
+  // Where the main frame navigated during the current step, redirect hops included. With the
+  // store's own target, these are the connections whose refusal can fail a step.
+  const storeTarget = targetOfUrl(options.url);
+  const causes = new Set<string>();
+  const resetCauses = () => {
+    causes.clear();
+    if (storeTarget) causes.add(storeTarget);
+  };
+  if (egress) {
+    page.on('request', (request) => {
+      if (!request.isNavigationRequest()) return;
+      try {
+        if (request.frame() !== page.mainFrame()) return;
+      } catch {
+        // Playwright has no frame for service worker requests; those are not navigations here.
+        return;
+      }
+      const target = targetOfUrl(request.url());
+      if (target) causes.add(target);
+    });
+  }
   const state: JourneyState = {
     page,
     context,
@@ -419,7 +443,6 @@ async function runJourney(
     : undefined;
   if (artifactBase) await mkdir(artifactBase, { recursive: true });
 
-  const storeHost = new URL(options.url).hostname;
   // Events from context setup (browser background traffic) belong to no step.
   egress?.take();
 
@@ -444,6 +467,7 @@ async function runJourney(
       }
 
       recorder.begin(name);
+      resetCauses();
       const t0 = performance.now();
       let status: StepResult['status'] = 'passed';
       let message: string | undefined;
@@ -461,7 +485,7 @@ async function runJourney(
       const durationMs = Math.round(performance.now() - t0);
       const events = recorder.take(name);
       if (egress) {
-        message = applyEgressEvents(status, message, details, egress.take(), storeHost);
+        message = applyEgressEvents(status, message, details, egress.take(), causes);
       }
       if (status === 'passed' && options.failOnPageErrors && events.pageErrors.length > 0) {
         status = 'failed';

@@ -118,6 +118,60 @@ describe('SSRF guard in the browser journey', () => {
     expect(journey?.steps.slice(1).every((s) => s.status === 'skipped')).toBe(true);
   });
 
+  it('lists a refused subresource in the step details and lets the step pass', async () => {
+    const target = await store({ platform: 'shopify', loopbackSubresource: true });
+    const loopback = () =>
+      target.requests().filter((request) => request.host === `127.0.0.1:${port(target)}`);
+
+    // Control, without a guard: the page really loads a script from 127.0.0.1.
+    const unguarded = await run(target.productUrl.replace('127.0.0.1', 'localhost'), {});
+    expect(unguarded.status).toBe('passed');
+    expect(loopback().map((request) => request.path)).toContain('/analytics.js');
+    const loopbackBefore = loopback().length;
+
+    const result = await run(storeTestUrl(target), { targetGuard: guardFor(target) });
+    expect(result.status).toBe('passed');
+    const steps = result.journeys[0]?.steps ?? [];
+    expect(steps.map((s) => s.status)).toEqual(Array(6).fill('passed'));
+    const openProduct = steps[0];
+    expect(openProduct?.message).toBeUndefined();
+    expect(openProduct?.details.blockedRequests).toBe(
+      `127.0.0.1:${port(target)} (127.0.0.1 is a loopback address (127.0.0.0/8))`,
+    );
+    // The proxy refused it before connecting: the store saw no request on 127.0.0.1.
+    expect(loopback()).toHaveLength(loopbackBefore);
+    expect(target.orderAttempts()).toBe(0);
+  });
+
+  it('keeps the message of a step that failed for another reason while a subresource was refused', async () => {
+    const target = await store({
+      platform: 'shopify',
+      variant: 'checkout-404',
+      loopbackSubresource: true,
+    });
+    const result = await run(storeTestUrl(target), { targetGuard: guardFor(target) });
+    const journey = result.journeys[0];
+    expect(journey?.failedStep).toBe('go_to_checkout');
+    const step = journey?.steps.find((s) => s.name === 'go_to_checkout');
+    // The 404 failed the step; the refused script on the 404 page did not.
+    expect(step?.message).toBe('Checkout returned HTTP 404');
+    expect(step?.details.blockedRequests).toContain(`127.0.0.1:${port(target)}`);
+  });
+
+  it("names the proxy's connection failure when the store's own host does not resolve", async () => {
+    const target = await store({ platform: 'shopify' });
+    const result = await run(storeTestUrl(target), {
+      targetGuard: guardFor(target, resolveTo({})),
+    });
+    expect(result.status).toBe('failed');
+    const openProduct = result.journeys[0]?.steps[0];
+    expect(openProduct?.message).toBe(
+      `Product page returned HTTP 502 (store.test:${port(target)}: getaddrinfo ENOTFOUND store.test)`,
+    );
+    expect(openProduct?.details).not.toHaveProperty('blockedRequests');
+    expect(target.userAgents()).toEqual([]);
+  });
+
   it('refuses a private product URL before using the browser', async () => {
     const target = await store({ platform: 'shopify' });
     const result = await run(target.productUrl, {

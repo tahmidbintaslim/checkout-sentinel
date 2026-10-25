@@ -35,6 +35,20 @@ export interface FixtureStoreOptions {
   host?: string;
   /** Delay before the checkout responds, for slow-step tests. */
   checkoutDelayMs?: number;
+  /**
+   * Every HTML page, requested by any host name other than 127.0.0.1, loads a script in its
+   * head from http://127.0.0.1 on the store's own port, the way a page can reference an
+   * internal address in its markup. The script blocks the parser, so it is requested before
+   * DOMContentLoaded. Works with every variant. SSRF guard tests.
+   */
+  loopbackSubresource?: boolean;
+}
+
+export interface FixtureRequest {
+  /** The Host header, for example "store.test:4010" or "127.0.0.1:4010". */
+  host: string;
+  method: string;
+  path: string;
 }
 
 export interface FixtureStore {
@@ -46,6 +60,8 @@ export interface FixtureStore {
   orderAttempts(): number;
   /** Distinct User-Agent headers seen by the store. */
   userAgents(): string[];
+  /** Every request the store received, in order. */
+  requests(): FixtureRequest[];
   close(): Promise<void>;
 }
 
@@ -78,15 +94,18 @@ export function createFixtureApp(options: FixtureStoreOptions): {
   app: express.Express;
   orderAttempts: () => number;
   userAgents: () => string[];
+  requests: () => FixtureRequest[];
 } {
   const variant = options.variant ?? 'ok';
   const carts = new Map<string, number>();
   let orders = 0;
   const app = express();
   const agents = new Set<string>();
+  const requests: FixtureRequest[] = [];
   app.disable('x-powered-by');
   app.use((req, _res, next) => {
     if (req.headers['user-agent']) agents.add(req.headers['user-agent']);
+    requests.push({ host: req.headers.host ?? '', method: req.method, path: req.originalUrl });
     next();
   });
   app.use(express.urlencoded({ extended: false }));
@@ -98,6 +117,20 @@ export function createFixtureApp(options: FixtureStoreOptions): {
       if (req.method === 'GET' && req.path === productPath && req.hostname !== '127.0.0.1') {
         res.redirect(302, `http://127.0.0.1:${req.socket.localPort}${req.originalUrl}`);
         return;
+      }
+      next();
+    });
+  }
+
+  if (options.loopbackSubresource) {
+    app.use((req, res, next) => {
+      if (req.hostname !== '127.0.0.1') {
+        const script = `<script src="http://127.0.0.1:${req.socket.localPort}/analytics.js"></script>`;
+        const send = res.send.bind(res);
+        res.send = ((body?: unknown) =>
+          send(
+            typeof body === 'string' ? body.replace('</head>', `${script}\n</head>`) : body,
+          )) as typeof res.send;
       }
       next();
     });
@@ -368,12 +401,20 @@ ${notice}
   app.get('/favicon.ico', (_req, res) => {
     res.status(204).end();
   });
+  app.get('/analytics.js', (_req, res) => {
+    res.type('text/javascript').send('// fixture analytics\n');
+  });
 
-  return { app, orderAttempts: () => orders, userAgents: () => [...agents] };
+  return {
+    app,
+    orderAttempts: () => orders,
+    userAgents: () => [...agents],
+    requests: () => [...requests],
+  };
 }
 
 export async function startFixtureStore(options: FixtureStoreOptions): Promise<FixtureStore> {
-  const { app, orderAttempts, userAgents } = createFixtureApp(options);
+  const { app, orderAttempts, userAgents, requests } = createFixtureApp(options);
   const host = options.host ?? '127.0.0.1';
   const server: Server = await new Promise((resolve, reject) => {
     const s = app.listen(options.port ?? 0, host, (error?: Error) => {
@@ -390,6 +431,7 @@ export async function startFixtureStore(options: FixtureStoreOptions): Promise<F
     variant: options.variant ?? 'ok',
     orderAttempts,
     userAgents,
+    requests,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.closeAllConnections();

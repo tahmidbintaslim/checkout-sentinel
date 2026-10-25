@@ -60,6 +60,24 @@ function endToEnd(headers: IncomingHttpHeaders): OutgoingHttpHeaders {
   return result;
 }
 
+/** "host:port", with IPv6 hosts in brackets: how EgressEvent.target names a connection. */
+export function formatTarget(host: string, port: number): string {
+  return host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`;
+}
+
+/** The target an http or https URL connects to, in EgressEvent.target form; null otherwise. */
+export function targetOfUrl(input: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  return formatTarget(normalizeHost(url.hostname), port);
+}
+
 /** Parses a CONNECT target ("host:port", "[v6]:port"), normalizing the host like a URL does. */
 export function parseAuthority(authority: string): { host: string; port: number } | null {
   const match = /^([^/?#@\s]+):(\d{1,5})$/.exec(authority);
@@ -123,7 +141,7 @@ export class EgressProxy {
 
   private record(outcome: EgressEvent['outcome'], host: string, port: number, reason: string) {
     if (this.events.length >= MAX_EVENTS) return;
-    const target = host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`;
+    const target = formatTarget(host, port);
     this.events.push({ at: new Date().toISOString(), target, host, outcome, reason });
   }
 

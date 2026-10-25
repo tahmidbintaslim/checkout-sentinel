@@ -62,12 +62,12 @@ all `127.0.0.1`.
 
 ### When it is checked
 
-| When                         | Where                             | Result when refused                                             |
-| ---------------------------- | --------------------------------- | --------------------------------------------------------------- |
-| `POST` and `PATCH /monitors` | API, with DNS                     | 400 with one issue per refused URL (`url`, `alerts.1.url`)      |
-| Before each run              | worker, with DNS                  | Run stored as `error` with `Target blocked: ...`; no alert      |
-| During the journey           | egress proxy, on every connection | The step fails with `Blocked a request to ...`; details list it |
-| Before each alert delivery   | worker, on the connection         | Delivery recorded as `failed` with `Blocked: ...`; not retried  |
+| When                         | Where                             | Result when refused                                                                         |
+| ---------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `POST` and `PATCH /monitors` | API, with DNS                     | 400 with one issue per refused URL (`url`, `alerts.1.url`)                                  |
+| Before each run              | worker, with DNS                  | Run stored as `error` with `Target blocked: ...`; no alert                                  |
+| During the journey           | egress proxy, on every connection | Listed in step details; a refused navigation fails the step with `Blocked a request to ...` |
+| Before each alert delivery   | worker, on the connection         | Delivery recorded as `failed` with `Blocked: ...`; not retried                              |
 
 The use-time checks matter because DNS answers change. The API check is early feedback; a
 name that does not resolve yet is accepted there, because nothing can connect to it, and is
@@ -78,6 +78,10 @@ worker process. Playwright route handlers are not called for redirect hops, so r
 cannot stop a public store from redirecting the browser to an internal address; the proxy sees
 every connection: navigations, each redirect hop, frames, scripts, images and the cart API
 reads. HTTPS goes through `CONNECT` tunnels, so TLS stays between Chromium and the store.
+Every refused connection is listed in the step's `details.blockedRequests`. A refused
+navigation or redirect hop fails the step, and the message names it. A refused image, script
+or frame does not fail the step on its own; if the step fails for another reason, it keeps its
+own message.
 
 The proxy and alert deliveries resolve the name themselves and connect to the address they
 just checked. A name cannot answer with a public address to the check and a private one to the

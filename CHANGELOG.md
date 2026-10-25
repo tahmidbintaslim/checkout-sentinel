@@ -25,7 +25,8 @@ Result schema version: 1 (unchanged).
   settings for the API and worker.
 - CLI flag `--block-private-targets` for `run` and `check`. Without it the CLI still reaches
   private addresses, as before.
-- Step details list requests the guard refused (`blockedRequests`).
+- Step details list requests the guard refused (`blockedRequests`). A refused navigation or
+  redirect hop fails the step and is named in its message; a refused subresource does not.
 - Fixture variant `redirect-to-loopback`.
 
 ### Changed

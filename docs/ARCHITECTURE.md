@@ -192,8 +192,10 @@ flowchart LR
   handlers are not called for redirect hops, so routing cannot stop a redirect to an internal
   host; the proxy sees every connection, redirect hops and cart API reads included. HTTPS is
   tunnelled with `CONNECT`, so the browser's own TLS reaches the store. Refused connections are
-  recorded per step: listed in the step's `details.blockedRequests`, and named in the message of
-  a step that failed because of them.
+  recorded per step and listed in the step's `details.blockedRequests`. A failed step's message
+  names a refused or failed connection only when it can be the cause: a main-frame navigation
+  or redirect hop during that step, or the store's own host and port. A refused image, script
+  or frame does not fail a step and does not change its message.
 - **Use time, alerts.** Deliveries use `node:http`/`node:https` with the guard's `lookup`, a
   fresh connection each time and no redirect following.
 - **Pinning.** The proxy and alert deliveries pass `TargetGuard.lookup` to the socket. It
@@ -217,7 +219,7 @@ flowchart LR
 | Alert endpoint down                          | Two attempts per delivery (retrying network errors and 5xx, not 4xx), then recorded as `failed` in `alert_deliveries` and counted in metrics. The run itself is not retried.                  |
 | Job retried after alerts were sent           | The unique delivery key makes the second send a no-op.                                                                                                                                        |
 | Monitor URL refused at use time              | The URL is private now (DNS changed, or the monitor predates the guard): run stored as `error` with `Target blocked: ...`; no state change, no alert.                                         |
-| Page redirects or loads from a private host  | The egress proxy refuses the connection. A navigation fails the step with `Blocked a request to ...`; a refused subresource is listed in `details.blockedRequests`.                           |
+| Page redirects or loads from a private host  | The egress proxy refuses the connection. A navigation fails the step with `Blocked a request to ...`; a refused subresource is only listed in `details.blockedRequests`.                      |
 | Alert URL refused at send time               | Recorded as `failed` with `Blocked: ...` and counted in metrics; not retried. A 3xx answer is also final: deliveries never follow redirects.                                                  |
 | SIGTERM                                      | The worker stops taking jobs, waits for running journeys (compose gives it 90 seconds), then closes Chromium, Redis and Postgres. The API stops accepting connections, then closes its pools. |
 | Concurrent API boots                         | Migrations run under a Postgres advisory lock.                                                                                                                                                |
