@@ -9,6 +9,7 @@ import {
   parseIPv4,
   targetPolicyFromEnv,
   type AddressRange,
+  type DnsRefusal,
   type ResolveHost,
   type ResolvedAddress,
 } from '@checkout-sentinel/core';
@@ -300,27 +301,79 @@ describe('TargetGuard.checkUrl', () => {
     },
   );
 
-  it('refuses names that resolve to a private address', async () => {
-    expect(await guard.checkUrl('https://internal.example/hook', 'webhook')).toEqual({
+  it('refuses names that resolve to a private address without saying which address', async () => {
+    const refusals: DnsRefusal[] = [];
+    const logged = new TargetGuard(STRICT_TARGET_POLICY, {
+      resolve: publicDns.resolve,
+      onDnsRefusal: (refusal) => refusals.push(refusal),
+    });
+    expect(await logged.checkUrl('https://internal.example/hook', 'webhook')).toEqual({
       allowed: false,
       rule: 'address',
-      reason: 'internal.example resolves to 10.20.30.40, a private RFC 1918 address (10.0.0.0/8)',
+      reason: 'internal.example resolves to a private or internal address',
     });
-    expect(await guard.checkUrl('https://metadata.example/')).toMatchObject({
+    expect(await logged.checkUrl('https://metadata.example/')).toEqual({
       allowed: false,
-      reason: expect.stringContaining('cloud metadata'),
+      rule: 'address',
+      reason: 'metadata.example resolves to a private or internal address',
     });
-    expect(await guard.checkUrl('https://mapped.example/')).toMatchObject({
+    expect(await logged.checkUrl('https://mapped.example/')).toEqual({
       allowed: false,
-      reason: expect.stringContaining('IPv4-mapped'),
+      rule: 'address',
+      reason: 'mapped.example resolves to a private or internal address',
     });
+    // The reason reaches API clients and stored results; the address goes to debug logs only.
+    expect(refusals).toEqual([
+      {
+        host: 'internal.example',
+        address: '10.20.30.40',
+        range: 'private',
+        label: 'a private RFC 1918 address (10.0.0.0/8)',
+      },
+      {
+        host: 'metadata.example',
+        address: '169.254.169.254',
+        range: 'link-local',
+        label: 'the cloud metadata address, link-local (169.254.169.254/32)',
+      },
+      expect.objectContaining({
+        host: 'mapped.example',
+        address: '::ffff:7f00:1',
+        range: 'ipv4-mapped',
+        label: expect.stringContaining('IPv4-mapped'),
+      }),
+    ]);
   });
 
   it('refuses a name when any of its addresses is private', async () => {
-    expect(await guard.checkUrl('https://dual.example/')).toMatchObject({
-      allowed: false,
-      reason: 'dual.example resolves to fd00::5, a unique-local address (fc00::/7)',
+    const refusals: DnsRefusal[] = [];
+    const logged = new TargetGuard(STRICT_TARGET_POLICY, {
+      resolve: publicDns.resolve,
+      onDnsRefusal: (refusal) => refusals.push(refusal),
     });
+    expect(await logged.checkUrl('https://dual.example/')).toMatchObject({
+      allowed: false,
+      reason: 'dual.example resolves to a private or internal address',
+    });
+    expect(refusals).toEqual([
+      expect.objectContaining({ address: 'fd00::5', range: 'unique-local' }),
+    ]);
+  });
+
+  it('keeps the verdict when the refusal hook throws', async () => {
+    const throwing = new TargetGuard(STRICT_TARGET_POLICY, {
+      resolve: publicDns.resolve,
+      onDnsRefusal: () => {
+        throw new Error('logger down');
+      },
+    });
+    expect(await throwing.checkUrl('https://internal.example/')).toMatchObject({
+      allowed: false,
+      rule: 'address',
+    });
+    await expect(throwing.resolveForConnection('internal.example')).rejects.toBeInstanceOf(
+      TargetBlockedError,
+    );
   });
 
   it('allows names that do not resolve; the use-time check decides again', async () => {
@@ -427,7 +480,7 @@ describe('DNS rebinding', () => {
     const later = await guard.checkUrl('https://rebind.example/products/tee');
     expect(later).toMatchObject({
       allowed: false,
-      reason: 'rebind.example resolves to 127.0.0.1, a loopback address (127.0.0.0/8)',
+      reason: 'rebind.example resolves to a private or internal address',
     });
   });
 
@@ -454,6 +507,9 @@ describe('DNS rebinding', () => {
     const refused = await lookup('rebind.example', {}).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(TargetBlockedError);
     expect((refused as TargetBlockedError).code).toBe('ETARGETBLOCKED');
+    expect((refused as TargetBlockedError).message).toBe(
+      'rebind.example resolves to a private or internal address',
+    );
 
     await expect(lookup('shop.example', { all: true })).resolves.toEqual([
       v6('2606:4700::6810:84e5'),

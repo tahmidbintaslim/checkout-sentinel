@@ -1,4 +1,4 @@
-import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
+import { Global, Inject, Logger, Module, type OnApplicationShutdown } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import {
   AlertDeliveryRepository,
@@ -45,11 +45,16 @@ export class InfraModule implements OnApplicationShutdown {
         { provide: API_CONFIG, useValue: config },
         {
           provide: TARGET_GUARD,
-          useFactory: () =>
-            new TargetGuard(
-              targetPolicyFromEnv(config),
-              options.resolveHost ? { resolve: options.resolveHost } : {},
-            ),
+          useFactory: () => {
+            const logger = new Logger('TargetGuard');
+            return new TargetGuard(targetPolicyFromEnv(config), {
+              ...(options.resolveHost ? { resolve: options.resolveHost } : {}),
+              // The 400 names the host only; operators get the address here.
+              onDnsRefusal: ({ host, address, range }) => {
+                logger.debug(`Refused ${host}: resolves to ${address} (${range})`);
+              },
+            });
+          },
         },
         { provide: DB_HANDLE, useFactory: () => createDb(config.DATABASE_URL) },
         { provide: REDIS, useFactory: () => createRedis(config.REDIS_URL) },

@@ -26,6 +26,8 @@ Result schema version: 1 (unchanged).
 - CLI flag `--block-private-targets` for `run` and `check`. It applies the worker's rules,
   ports included, and reads `ALLOWED_TARGET_HOSTS` and `ALLOWED_TARGET_PORTS`. Without it the
   CLI still reaches private addresses, as before.
+- Refusal reasons for names never include the address the name resolved to; the API and
+  worker log it at debug level.
 - Step details list requests the guard refused (`blockedRequests`). A refused navigation or
   redirect hop fails the step and is named in its message; a refused subresource does not.
 - Fixture variant `redirect-to-loopback`.

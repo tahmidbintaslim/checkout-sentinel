@@ -94,9 +94,10 @@ describe('deliverAlert with a target guard', () => {
       context,
       options(guard),
     );
+    // The stored error names the host, never the address it resolved to.
     expect(outcome).toEqual({
       ok: false,
-      error: 'Blocked: rebind.test resolves to 127.0.0.1, a loopback address (127.0.0.0/8)',
+      error: 'Blocked: rebind.test resolves to a private or internal address',
     });
     // Blocks are final: no retry, and nothing reached the receiver.
     expect(received).toEqual([]);

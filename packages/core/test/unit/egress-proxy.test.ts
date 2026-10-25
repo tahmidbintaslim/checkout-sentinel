@@ -15,10 +15,13 @@ let origin: Server;
 let originPort = 0;
 let proxy: EgressProxy;
 let proxyPort = 0;
+/** Allowed, but nothing listens there. */
+let closedPort = 0;
 let rebindCalls = 0;
 
 const resolve: ResolveHost = async (hostname) => {
   if (hostname === 'store.test') return [{ address: '127.0.0.1', family: 4 }];
+  if (hostname === 'internal.test') return [{ address: '10.0.0.7', family: 4 }];
   if (hostname === 'rebind.test') {
     rebindCalls += 1;
     // Public when first checked, loopback by the time the proxy connects.
@@ -59,8 +62,12 @@ beforeAll(async () => {
   });
   await new Promise<void>((done) => origin.listen(0, '127.0.0.1', done));
   originPort = (origin.address() as AddressInfo).port;
+  const closed = createServer();
+  await new Promise<void>((done) => closed.listen(0, '127.0.0.1', done));
+  closedPort = (closed.address() as AddressInfo).port;
+  await new Promise<void>((done) => closed.close(() => done()));
   guard = new TargetGuard(
-    { allowedHosts: ['store.test'], allowedPorts: [originPort] },
+    { allowedHosts: ['store.test'], allowedPorts: [originPort, closedPort] },
     { resolve },
   );
   proxy = await EgressProxy.start(guard, { connectTimeoutMs: 2_000 });
@@ -197,8 +204,33 @@ describe('EgressProxy, plain HTTP', () => {
     expect(reply.status).toBe(502);
     expect(reply.headers[EGRESS_HEADER]).toBe('failed');
     expect(proxy.take()).toEqual([
-      expect.objectContaining({ outcome: 'failed', reason: expect.stringContaining('ENOTFOUND') }),
+      expect.objectContaining({ outcome: 'failed', reason: 'the host name did not resolve' }),
     ]);
+  });
+
+  it('reports a failed connection by kind, without the address it tried', async () => {
+    const reply = await viaProxy(`http://store.test:${closedPort}/`);
+    expect(reply.status).toBe(502);
+    expect(reply.body).not.toContain('127.0.0.1');
+    expect(proxy.take()).toEqual([
+      expect.objectContaining({ outcome: 'failed', reason: 'the connection was refused' }),
+    ]);
+  });
+
+  it('refuses an internal name without showing the address it resolved to', async () => {
+    const reply = await viaProxy('http://internal.test/');
+    expect(reply.status).toBe(403);
+    expect(reply.body).toContain('internal.test resolves to a private or internal address');
+    expect(reply.body).not.toContain('10.0.0.7');
+    const events = proxy.take();
+    expect(events).toEqual([
+      expect.objectContaining({
+        target: 'internal.test:80',
+        outcome: 'blocked',
+        reason: 'internal.test resolves to a private or internal address',
+      }),
+    ]);
+    expect(JSON.stringify(events)).not.toContain('10.0.0.7');
   });
 });
 
@@ -246,7 +278,7 @@ describe('EgressProxy, CONNECT tunnels', () => {
       expect.objectContaining({
         target: 'rebind.test:443',
         outcome: 'blocked',
-        reason: 'rebind.test resolves to 127.0.0.1, a loopback address (127.0.0.0/8)',
+        reason: 'rebind.test resolves to a private or internal address',
       }),
     ]);
   });
@@ -255,7 +287,15 @@ describe('EgressProxy, CONNECT tunnels', () => {
     const missing = await connectVia('nowhere.test:443');
     missing.socket.destroy();
     expect(missing.status).toBe(502);
-    expect(proxy.take()).toEqual([expect.objectContaining({ outcome: 'failed' })]);
+    expect(proxy.take()).toEqual([
+      expect.objectContaining({ outcome: 'failed', reason: 'the host name did not resolve' }),
+    ]);
+    const refused = await connectVia(`store.test:${closedPort}`);
+    refused.socket.destroy();
+    expect(refused.status).toBe(502);
+    expect(proxy.take()).toEqual([
+      expect.objectContaining({ outcome: 'failed', reason: 'the connection was refused' }),
+    ]);
     const malformed = await connectVia('store.test');
     malformed.socket.destroy();
     expect(malformed.status).toBe(400);

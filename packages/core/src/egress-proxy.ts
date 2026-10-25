@@ -91,9 +91,40 @@ export function parseAuthority(authority: string): { host: string; port: number 
   }
 }
 
+/**
+ * Why a connection was refused or failed, as recorded in events and shown to the browser.
+ * Refusals keep the guard's reason, which names the host but not where it points. Failures
+ * are described by kind only: raw socket errors name the address that was dialled, and these
+ * reasons reach the monitor's author through the run result.
+ */
 function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof TargetBlockedError) return error.message;
+  const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+  switch (code) {
+    case 'ENOTFOUND':
+    case 'EAI_AGAIN':
+    case 'EAI_FAIL':
+    case 'EAI_NODATA':
+    case 'EAI_NONAME':
+      return 'the host name did not resolve';
+    case 'ETIMEOUT':
+      return 'the DNS lookup timed out';
+    case 'ECONNREFUSED':
+      return 'the connection was refused';
+    case 'ECONNRESET':
+    case 'EPIPE':
+      return 'the connection was reset';
+    case 'ETIMEDOUT':
+      return 'the connection timed out';
+    case 'EHOSTUNREACH':
+    case 'ENETUNREACH':
+      return 'the host is unreachable';
+    default:
+      return 'could not connect';
+  }
 }
+
+const timedOut = (message: string) => Object.assign(new Error(message), { code: 'ETIMEDOUT' });
 
 const MAX_EVENTS = 200;
 
@@ -170,7 +201,7 @@ export class EgressProxy {
     this.track(upstream);
     upstream.once('timeout', () => {
       if (!established) {
-        upstream.destroy(new Error(`connect timed out after ${this.options.connectTimeoutMs} ms`));
+        upstream.destroy(timedOut(`connect timed out after ${this.options.connectTimeoutMs} ms`));
       }
     });
     upstream.once('connect', () => {
@@ -187,7 +218,7 @@ export class EgressProxy {
         return;
       }
       const isBlocked = error instanceof TargetBlockedError;
-      this.record(isBlocked ? 'blocked' : 'failed', target.host, target.port, error.message);
+      this.record(isBlocked ? 'blocked' : 'failed', target.host, target.port, describeError(error));
       client.end(
         isBlocked
           ? `HTTP/1.1 403 Forbidden\r\n${EGRESS_HEADER}: blocked\r\n\r\n`
@@ -254,7 +285,7 @@ export class EgressProxy {
     });
     upstream.once('socket', (socket) => this.track(socket));
     upstream.once('timeout', () => {
-      upstream.destroy(new Error(`no response within ${this.options.connectTimeoutMs} ms`));
+      upstream.destroy(timedOut(`no response within ${this.options.connectTimeoutMs} ms`));
     });
     upstream.once('response', (response) => {
       upstream.setTimeout(0);

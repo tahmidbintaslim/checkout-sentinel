@@ -44,7 +44,12 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
   const scheduler = new JourneyScheduler(redis);
   const metrics = new WorkerMetrics();
   const browsers = new BrowserPool();
-  const targetGuard = new TargetGuard(targetPolicyFromEnv(config));
+  const targetGuard = new TargetGuard(targetPolicyFromEnv(config), {
+    // Refusal reasons in results and delivery logs leave the address out; operators get it here.
+    onDnsRefusal: ({ host, address, range }) => {
+      log.debug({ host, address, range }, 'target refused: name resolves to a non-public address');
+    },
+  });
 
   const deps = {
     monitors: new MonitorRepository(db.db),

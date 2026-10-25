@@ -338,11 +338,27 @@ export const systemResolveHost: ResolveHost = async (hostname) =>
     family: entry.family === 6 ? 6 : 4,
   }));
 
+/** A host name refused because of an address it resolved to. */
+export interface DnsRefusal {
+  host: string;
+  /** The non-public address, in canonical form. */
+  address: string;
+  range: AddressRange;
+  label: string;
+}
+
 export interface TargetGuardOptions {
   /** Replaces the system resolver (tests). */
   resolve?: ResolveHost;
   /** Default 5000 ms. */
   resolveTimeoutMs?: number;
+  /**
+   * Called whenever a name is refused because of an address it resolved to. Refusal reasons
+   * name the host but never that address, since they reach API clients, stored run results
+   * and alert logs, where they would let monitor authors map the internal network through
+   * the server's DNS. This hook is where the address goes instead: log it at debug level.
+   */
+  onDnsRefusal?: (refusal: DnsRefusal) => void;
 }
 
 /** Lowercases, removes IPv6 brackets and one trailing dot, so "LOCALHOST." matches "localhost". */
@@ -373,6 +389,7 @@ export class TargetGuard {
   private readonly ports: ReadonlySet<number>;
   private readonly resolveHost: ResolveHost;
   private readonly resolveTimeoutMs: number;
+  private readonly onDnsRefusal: ((refusal: DnsRefusal) => void) | undefined;
 
   constructor(policy: Partial<TargetPolicy> = {}, options: TargetGuardOptions = {}) {
     this.policy = {
@@ -386,6 +403,7 @@ export class TargetGuard {
     this.ports = new Set([...DEFAULT_TARGET_PORTS, ...this.policy.allowedPorts]);
     this.resolveHost = options.resolve ?? systemResolveHost;
     this.resolveTimeoutMs = options.resolveTimeoutMs ?? 5_000;
+    this.onDnsRefusal = options.onDnsRefusal;
   }
 
   /** True when private targets are allowed (local development): no address or port checks. */
@@ -474,12 +492,24 @@ export class TargetGuard {
     );
   }
 
+  /** The reason a resolved name is refused, or null when every address is public. */
   private firstNonPublic(host: string, addresses: readonly ResolvedAddress[]): string | null {
     for (const entry of addresses) {
       const classification = classifyAddress(entry.address);
       if (!classification) return `${host} resolved to something that is not an IP address`;
       if (classification.range !== 'public') {
-        return `${host} resolves to ${classification.address}, ${classification.label}`;
+        try {
+          this.onDnsRefusal?.({
+            host,
+            address: classification.address,
+            range: classification.range,
+            label: classification.label,
+          });
+        } catch {
+          // A failing logger must not change the verdict.
+        }
+        // Not the address or its range: see TargetGuardOptions.onDnsRefusal.
+        return `${host} resolves to a private or internal address`;
       }
     }
     return null;

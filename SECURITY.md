@@ -60,6 +60,13 @@ A URL is refused when any of these is true:
 IPv4 hosts are read the way browsers read them, so `2130706433`, `0x7f.1` and `0177.0.0.1` are
 all `127.0.0.1`.
 
+A refusal for a name says only that it resolves to a private or internal address. The address
+and its range are not in API errors, run errors, step messages and details, or the `Blocked:`
+errors of alert deliveries, so the guard cannot be used to read where internal names point.
+Connection failures during a journey are reported by kind
+(for example `the connection was refused`), without the address that was dialled. The API and
+the worker log the resolved address and range at debug level.
+
 ### When it is checked
 
 | When                         | Where                             | Result when refused                                                                         |
@@ -119,3 +126,6 @@ does. `ALLOW_PRIVATE_TARGETS` is ignored when the flag is passed.
   traffic does not.
 - Monitors created before the guard existed are not rechecked by the API, but the worker
   refuses them at use time.
+- A refusal still shows that a name resolves to a private or internal address, and a name
+  that does not resolve is reported differently. Someone who can create monitors can therefore
+  test whether a name exists in your internal DNS, though not where it points.

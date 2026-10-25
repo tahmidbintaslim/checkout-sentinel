@@ -182,7 +182,10 @@ flowchart LR
   Slack channels on `https://hooks.slack.com/` only, and no host that is, or resolves to, a
   loopback, private, CGNAT, link-local, unique-local, IPv4-mapped, multicast, unspecified or
   reserved address. The classifier parses IPv4 the way the WHATWG URL parser does, so decimal,
-  octal and hex forms cannot slip past it.
+  octal and hex forms cannot slip past it. A refusal for a name never includes the address it
+  resolved to, since reasons reach API clients and stored results; the guard's `onDnsRefusal`
+  hook hands that address to a debug log in the API and worker. The egress proxy reports
+  connection failures by kind, not with the raw socket error.
 - **Input time.** The API runs the full check, DNS included, after schema validation and
   answers 400 with one issue per refused URL. A name that does not resolve is accepted; it is
   checked again before use.

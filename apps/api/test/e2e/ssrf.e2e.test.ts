@@ -92,21 +92,29 @@ describe.skipIf(!services.available)('API SSRF guard end to end', () => {
     ['http://0.0.0.0/products/tee', 'unspecified'],
     ['http://10.0.0.5/products/tee', 'private'],
     ['http://100.64.1.1/products/tee', 'carrier-grade NAT'],
-    ['http://internal-shop.test/products/tee', 'internal-shop.test resolves to 10.0.0.7'],
+    [
+      'http://internal-shop.test/products/tee',
+      'internal-shop.test resolves to a private or internal address',
+    ],
     ['https://user:pass@public-shop.test/products/tee', 'user name or password'],
     ['https://public-shop.test:8443/products/tee', 'Port 8443 is not allowed'],
   ])('rejects the monitor URL %s with a 400', async (url, reason) => {
     const response = await call(strictBase, '/monitors', 'POST', { name: 'x', url });
     expect(response.status).toBe(400);
-    expect(await issuesOf(response)).toEqual([
-      { path: 'url', message: expect.stringContaining(reason) },
-    ]);
+    const issues = await issuesOf(response);
+    expect(issues).toEqual([{ path: 'url', message: expect.stringContaining(reason) }]);
+    // Where an internal name points stays on the server.
+    expect(JSON.stringify(issues)).not.toContain('10.0.0.7');
   });
 
   it.each([
     [[{ type: 'webhook', url: 'http://10.0.0.5/hook' }], 'alerts.0.url', 'private'],
     [[{ type: 'webhook', url: 'http://localhost:9000/hook' }], 'alerts.0.url', 'local machine'],
-    [[{ type: 'webhook', url: 'http://internal-shop.test/hook' }], 'alerts.0.url', '10.0.0.7'],
+    [
+      [{ type: 'webhook', url: 'http://internal-shop.test/hook' }],
+      'alerts.0.url',
+      'internal-shop.test resolves to a private or internal address',
+    ],
     [
       [
         { type: 'webhook', url: 'https://public-shop.test/hook' },
@@ -132,7 +140,9 @@ describe.skipIf(!services.available)('API SSRF guard end to end', () => {
       alerts,
     });
     expect(response.status).toBe(400);
-    expect(await issuesOf(response)).toEqual([{ path, message: expect.stringContaining(reason) }]);
+    const issues = await issuesOf(response);
+    expect(issues).toEqual([{ path, message: expect.stringContaining(reason) }]);
+    expect(JSON.stringify(issues)).not.toContain('10.0.0.7');
   });
 
   it('reports every refused URL at once and stores nothing', async () => {

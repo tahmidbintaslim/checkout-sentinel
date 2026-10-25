@@ -166,7 +166,7 @@ describe('SSRF guard in the browser journey', () => {
     expect(result.status).toBe('failed');
     const openProduct = result.journeys[0]?.steps[0];
     expect(openProduct?.message).toBe(
-      `Product page returned HTTP 502 (store.test:${port(target)}: getaddrinfo ENOTFOUND store.test)`,
+      `Product page returned HTTP 502 (store.test:${port(target)}: the host name did not resolve)`,
     );
     expect(openProduct?.details).not.toHaveProperty('blockedRequests');
     expect(target.userAgents()).toEqual([]);
@@ -200,9 +200,12 @@ describe('SSRF guard in the browser journey', () => {
     // The use-time check saw the public answer; the connection saw 127.0.0.1 and was refused.
     expect(calls).toBeGreaterThanOrEqual(2);
     expect(result.status).toBe('failed');
-    expect(result.journeys[0]?.steps[0]?.message).toContain(
-      'rebind.test resolves to 127.0.0.1, a loopback address',
+    const openProduct = result.journeys[0]?.steps[0];
+    expect(openProduct?.message).toBe(
+      `Blocked a request to rebind.test:${port(target)}: rebind.test resolves to a private or internal address (Product page returned HTTP 403)`,
     );
+    // Nothing returned by GET /runs/:id may show where an internal name points.
+    expect(JSON.stringify(result)).not.toContain('127.0.0.1');
     expect(target.userAgents()).toEqual([]);
   });
 
