@@ -1,0 +1,29 @@
+{
+  "name": "@checkout-sentinel/core",
+  "version": "0.1.0",
+  "description": "Playwright journey engine: product page to add to cart to checkout, without placing an order.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@checkout-sentinel/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "cron-parser": "5.10.2",
+    "playwright": "1.64.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@checkout-sentinel/fixtures": "workspace:*"
+  }
+}
