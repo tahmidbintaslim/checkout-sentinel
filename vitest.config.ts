@@ -15,6 +15,8 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['packages/*/test/unit/**/*.test.ts', 'apps/*/test/unit/**/*.test.ts'],
+          // The dashboard's unit tests need Vue and a DOM; they are the "web" project below.
+          exclude: ['apps/web/**'],
           environment: 'node',
         },
       },
@@ -44,6 +46,7 @@ export default defineConfig({
           fileParallelism: false,
         },
       },
+      'apps/web/vitest.config.ts',
     ],
   },
 });

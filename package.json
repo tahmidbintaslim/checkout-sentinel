@@ -15,7 +15,7 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:unit": "vitest run --project unit",
+    "test:unit": "vitest run --project unit --project web",
     "test:integration": "vitest run --project integration",
     "test:e2e": "vitest run --project e2e",
     "fixtures": "pnpm --filter @checkout-sentinel/fixtures run start"
@@ -27,10 +27,13 @@
     "@types/node": "^22.20.5",
     "eslint": "10.13.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.11.1",
+    "eslint-plugin-vuejs-accessibility": "^2.6.3",
     "globals": "^17.13.0",
     "prettier": "^3.9.10",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.0",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "vue-eslint-parser": "^10.4.1"
   }
 }

@@ -1,0 +1,97 @@
+/*
+ * Design tokens. Every text color pair below meets WCAG AA (4.5:1) on the surfaces it is used
+ * on, in both themes; input borders and focus rings meet 3:1 against their surface.
+ */
+:root {
+  color-scheme: light dark;
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --leading: 1.5;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-pill: 999px;
+  --content-width: 72rem;
+
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f6f8fa;
+  --color-text: #1b1f24;
+  --color-muted: #57606a;
+  --color-divider: #d8dee4;
+  --color-border-strong: #8c959f;
+  --color-accent: #0b5cad;
+  --color-on-accent: #ffffff;
+  --color-danger: #b42318;
+  --color-on-danger: #ffffff;
+  --color-focus: #0b5cad;
+
+  --color-pass-fg: #116329;
+  --color-pass-bg: #dafbe1;
+  --color-fail-fg: #a40e26;
+  --color-fail-bg: #ffebe9;
+  --color-warn-fg: #6f4400;
+  --color-warn-bg: #fff4c2;
+  --color-neutral-fg: #3d444d;
+  --color-neutral-bg: #e8ecf0;
+  --color-info-fg: #0a4b8c;
+  --color-info-bg: #ddf4ff;
+
+  --color-bar-pass: #1a7f37;
+  --color-bar-fail: #cf222e;
+  --color-bar-skip: #8c959f;
+  --color-bar-slow: #9a6700;
+
+  --shadow-card: 0 1px 2px rgb(31 35 40 / 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0d1117;
+    --color-surface: #161b22;
+    --color-surface-raised: #1c222b;
+    --color-text: #e6edf3;
+    --color-muted: #9ba3ad;
+    --color-divider: #30363d;
+    --color-border-strong: #6e7681;
+    --color-accent: #58a6ff;
+    --color-on-accent: #0d1117;
+    --color-danger: #ff8182;
+    --color-on-danger: #0d1117;
+    --color-focus: #58a6ff;
+
+    --color-pass-fg: #56d364;
+    --color-pass-bg: #0f2e1a;
+    --color-fail-fg: #ff8182;
+    --color-fail-bg: #3c0f14;
+    --color-warn-fg: #e3b341;
+    --color-warn-bg: #33270a;
+    --color-neutral-fg: #c9d1d9;
+    --color-neutral-bg: #262c36;
+    --color-info-fg: #79c0ff;
+    --color-info-bg: #0c2d4f;
+
+    --color-bar-pass: #3fb950;
+    --color-bar-fail: #f85149;
+    --color-bar-skip: #6e7681;
+    --color-bar-slow: #d29922;
+
+    --shadow-card: none;
+  }
+}
