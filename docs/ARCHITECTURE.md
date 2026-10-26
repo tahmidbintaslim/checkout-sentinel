@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes how checkout-sentinel v0.1 is put together, why, and where it is
+This document describes how checkout-sentinel v0.2 is put together, why, and where it is
 expected to change as it grows into a hosted service.
 
 ## Components
@@ -428,7 +428,7 @@ compare-and-delete release), shared by every worker. A job that cannot get a slo
 failed. In a hosted version this becomes a per-plan limit, and many monitors on one host would
 also be spread across the schedule.
 
-**Browser pool.** v0.1 keeps one Chromium per worker process, reused by all its jobs, with a fresh
+**Browser pool.** The worker keeps one Chromium per process, reused by all its jobs, with a fresh
 context per journey. That is the main cost saving over launching Chromium per run, and contexts
 give full isolation of cookies and carts. Next steps if needed: recycle the browser after N
 journeys to cap memory growth, and move to a pool of several browsers per process, or to a remote

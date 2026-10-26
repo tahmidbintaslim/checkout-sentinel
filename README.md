@@ -8,7 +8,7 @@ it recovers.
 It never enters payment details and never places an order.
 
 [![CI](https://github.com/tahmidbintaslim/checkout-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/tahmidbintaslim/checkout-sentinel/actions/workflows/ci.yml)
-License: MIT. Status: v0.1, early.
+License: MIT. Status: v0.2, early.
 
 ## Why
 
@@ -93,40 +93,42 @@ node apps/cli/dist/main.js run http://127.0.0.1:4020/products/demo-tee   # size 
 
 ### Example output
 
-These are real runs against the fixture stores. A passing WooCommerce-like store:
+These are real runs against the fixture stores (paths shortened to
+`checkout-sentinel-results/<run-id>/`). A passing WooCommerce-like store:
 
 ```text
-checkout-sentinel 0.1.0  http://127.0.0.1:4015/product/demo-hoodie/
+checkout-sentinel 0.2.0  http://127.0.0.1:4015/product/demo-hoodie/
 Platform: woocommerce (high confidence: meta[name="generator"] mentions WooCommerce; wc_add_to_cart_params or woocommerce_params is defined; body has class woocommerce or woocommerce-page; button.single_add_to_cart_button)
 
-desktop  PASSED  640 ms
-   ok   open_product         117 ms  HTTP 200, platform woocommerce
-   ok   find_add_to_cart      70 ms  button.single_add_to_cart_button
-   ok   add_to_cart          126 ms
-   ok   verify_cart           11 ms  cart 0 -> 1 (Store API /wp-json/wc/store/v1/cart)
-   ok   go_to_checkout        55 ms
-   ok   checkout_renders      37 ms  /checkout/
+desktop  PASSED  881 ms
+   ok   open_product         199 ms  HTTP 200, platform woocommerce
+   ok   find_add_to_cart     182 ms  button.single_add_to_cart_button
+   ok   add_to_cart          143 ms
+   ok   verify_cart            9 ms  cart 0 -> 1 (Store API /wp-json/wc/store/v1/cart)
+   ok   go_to_checkout        56 ms
+   ok   checkout_renders      53 ms  /checkout/
 
-mobile   PASSED  516 ms
-   ok   open_product          89 ms  HTTP 200, platform woocommerce
-   ok   find_add_to_cart      52 ms  button.single_add_to_cart_button
-   ok   add_to_cart           87 ms
-   ok   verify_cart           11 ms  cart 0 -> 1 (Store API /wp-json/wc/store/v1/cart)
-   ok   go_to_checkout        54 ms
-   ok   checkout_renders      33 ms  /checkout/
+mobile   PASSED  701 ms
+   ok   open_product         118 ms  HTTP 200, platform woocommerce
+   ok   find_add_to_cart     120 ms  button.single_add_to_cart_button
+   ok   add_to_cart          110 ms
+   ok   verify_cart            9 ms  cart 0 -> 1 (Store API /wp-json/wc/store/v1/cart)
+   ok   go_to_checkout        64 ms
+   ok   checkout_renders      51 ms  /checkout/
 
-Result: PASSED  2/2 journeys passed  (1.48 s)
+Result: PASSED  2/2 journeys passed  (1.99 s)
+Result JSON: checkout-sentinel-results/<run-id>/result.json
 ```
 
 A Shopify-like store whose theme hides the button below 750px (exit code 1):
 
 ```text
-checkout-sentinel 0.1.0  http://127.0.0.1:4011/products/demo-tee
+checkout-sentinel 0.2.0  http://127.0.0.1:4011/products/demo-tee
 Platform: shopify (high confidence: window.Shopify is defined; meta[name="shopify-checkout-api-token"] or shopify-digital-wallet; Shopify response headers (x-shopid, x-shopify-stage, powered-by: Shopify); form[action*="/cart/add"])
 
-mobile   FAILED  2.54 s
-   ok   open_product         121 ms  HTTP 200, platform shopify
-  FAIL  find_add_to_cart     2.11 s  Add-to-cart control exists (submit button inside form[action*="/cart/add"]) but is hidden or disabled at this viewport
+mobile   FAILED  2.84 s
+   ok   open_product         151 ms  HTTP 200, platform shopify
+  FAIL  find_add_to_cart     2.23 s  Add-to-cart control exists (submit button inside form[action*="/cart/add"]) but is hidden or disabled at this viewport
           screenshot: checkout-sentinel-results/<run-id>/mobile-find_add_to_cart.png
   skip  add_to_cart                  Skipped because find_add_to_cart failed
   skip  verify_cart                  Skipped because find_add_to_cart failed
@@ -134,7 +136,27 @@ mobile   FAILED  2.54 s
   skip  checkout_renders             Skipped because find_add_to_cart failed
           trace: checkout-sentinel-results/<run-id>/mobile-trace.zip (open with: npx playwright show-trace <file>)
 
-Result: FAILED  0/1 journeys passed  (2.83 s)
+Result: FAILED  0/1 journeys passed  (3.29 s)
+Result JSON: checkout-sentinel-results/<run-id>/result.json
+```
+
+A Shopify-like product with size and colour options whose default variant is sold out. The
+journey picks the first available variant through the theme's own pickers:
+
+```text
+checkout-sentinel 0.2.0  http://127.0.0.1:4020/products/demo-tee
+Platform: shopify (high confidence: window.Shopify is defined; meta[name="shopify-checkout-api-token"] or shopify-digital-wallet; Shopify response headers (x-shopid, x-shopify-stage, powered-by: Shopify); form[action*="/cart/add"])
+
+desktop  PASSED  1.01 s
+   ok   open_product         168 ms  HTTP 200, platform shopify
+   ok   find_add_to_cart     358 ms  submit button inside form[action*="/cart/add"], variant S / White (theme options)
+   ok   add_to_cart          121 ms
+   ok   verify_cart            8 ms  cart 0 -> 1 (/cart.js)
+   ok   go_to_checkout        64 ms
+   ok   checkout_renders      41 ms  /checkouts/cn/fixture-checkout-xyz
+
+Result: PASSED  1/1 journeys passed  (1.39 s)
+Result JSON: checkout-sentinel-results/<run-id>/result.json
 ```
 
 Timings above come from a local fixture server and say nothing about real stores.
@@ -425,7 +447,7 @@ nothing and the journey would fail later at `verify_cart`.
 
 - One fresh browser context per journey; devices run in sequence.
 - The user agent keeps a normal browser prefix (so mobile themes still serve mobile markup) and
-  appends `checkout-sentinel/0.1.0 (+https://github.com/tahmidbintaslim/checkout-sentinel)`, or
+  appends `checkout-sentinel/0.2.0 (+https://github.com/tahmidbintaslim/checkout-sentinel)`, or
   your own URL via `USER_AGENT_CONTACT_URL`, so merchants can filter this traffic.
 - Schedules shorter than every 5 minutes are rejected.
 - The worker allows one journey per store host at a time across all workers by default

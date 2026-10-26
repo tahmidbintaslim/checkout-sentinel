@@ -1,6 +1,6 @@
 {
   "name": "@checkout-sentinel/web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Dashboard for checkout-sentinel: monitors, run history, step timelines, screenshots and the alert log.",
   "license": "MIT",

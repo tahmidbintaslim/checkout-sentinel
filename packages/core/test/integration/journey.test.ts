@@ -99,7 +99,7 @@ describe.each<[Exclude<FixturePlatform, 'generic'>]>([['shopify'], ['woocommerce
       expect(agents.length).toBeGreaterThan(0);
       for (const agent of agents) {
         expect(agent).toMatch(
-          /checkout-sentinel\/0\.1\.0 \(\+https:\/\/github\.com\/tahmidbintaslim\/checkout-sentinel\)/,
+          /checkout-sentinel\/0\.2\.0 \(\+https:\/\/github\.com\/tahmidbintaslim\/checkout-sentinel\)/,
         );
       }
     });

@@ -1,6 +1,6 @@
 {
   "name": "@checkout-sentinel/jobs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "BullMQ queue names, job payloads and scheduler helpers shared by the API and worker.",
   "license": "MIT",

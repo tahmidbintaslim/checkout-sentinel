@@ -1,6 +1,6 @@
 {
   "name": "@checkout-sentinel/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Playwright journey engine: product page to add to cart to checkout, without placing an order.",
   "license": "MIT",
   "type": "module",
