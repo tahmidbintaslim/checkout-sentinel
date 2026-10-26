@@ -13,9 +13,10 @@ Only the latest release receives fixes while the project is in 0.x.
 
 ## Things to know when self-hosting
 
-- **Set `API_TOKEN`.** Without it the API accepts unauthenticated requests. `/health`,
-  `/metrics` and `/docs` are always public; do not expose the API to the internet without a token
-  and TLS in front of it.
+- **Set `API_TOKEN`.** Without it the API accepts unauthenticated requests, and anyone who can
+  open the dashboard can see and change every monitor. `/health`, `/metrics`, `/docs` and the
+  dashboard's static files are always public (the files hold no data); do not expose the API to
+  the internet without a token and TLS in front of it.
 - **Monitor and webhook URLs are fetched by your servers.** The API and worker refuse URLs that
   point at private and internal addresses (see [SSRF protection](#ssrf-protection) below).
   Leave `ALLOW_PRIVATE_TARGETS` off in production. The guard is one layer: still run workers in
@@ -27,10 +28,34 @@ Only the latest release receives fixes while the project is in 0.x.
   `x-checkout-sentinel-signature` header (`sha256=` HMAC of the raw body) before trusting a
   delivery.
 - **Artifacts may contain store content.** Failure screenshots and traces capture the pages the
-  journey visited, including cookies in traces. Treat the artifacts volume as sensitive.
+  journey visited, including cookies in traces. Treat the artifacts volume as sensitive. The API
+  serves them to holders of the API token (see [Dashboard](#dashboard)).
 - **The journey never pays.** It does not fill or submit checkout forms, and order placement and
   payment requests are blocked in the browser. If you find a way it could place an order, please
   report it as a security issue.
+
+## Dashboard
+
+The API serves the dashboard at `/`. What it does to keep the token and the data safe:
+
+- **Token storage.** The token entered in the dashboard is kept in `sessionStorage` for that tab
+  and sent only as an `Authorization: Bearer` header to the same origin. It is not written to
+  `localStorage` or a cookie, so it does not outlive the tab and is not sent with requests
+  automatically, which also rules out cross-site request forgery. Script running in the page
+  could read it, which is why the page allows no other script (next point).
+- **Content Security Policy.** `index.html` is served with `default-src 'self'`,
+  `script-src 'self'` and `style-src 'self'` (no inline scripts or styles), `img-src 'self'
+blob: data:`, `connect-src 'self'`, `object-src 'none'`, `base-uri 'self'`,
+  `form-action 'self'` and `frame-ancestors 'none'`, plus `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Store content (names,
+  URLs, step messages, console errors) is rendered as text by Vue, never as HTML.
+- **Artifacts.** `GET /runs/:id/artifacts/:name` needs the token like every other API route. It
+  serves only file names the run's stored result references, accepts only plain names (no
+  separators or leading dots), looks them up under `ARTIFACTS_DIR/<monitorId>/<runId>/` and
+  refuses any file whose real path, after resolving symbolic links, is outside `ARTIFACTS_DIR`.
+  The compose stack mounts the artifacts volume read-only on the API.
+- **Secrets.** Saved Slack URLs are shown masked and webhook secrets are never sent to the
+  browser. An edit keeps them with a stored channel reference instead of sending them back.
 
 ## SSRF protection
 

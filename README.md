@@ -31,7 +31,10 @@ is to do what a shopper does, in a browser, on a schedule.
 - **API and worker** (`apps/api`, `apps/worker`): a NestJS API for monitors, run history and
   status; a BullMQ worker that runs journeys on cron schedules and sends state-change alerts to a
   generic webhook or a Slack incoming webhook. Postgres for state, Redis for the queue.
-- **docker compose** stack with Postgres, Redis, API and worker.
+- **Dashboard** (`apps/web`): a Vue app the API serves at `/`. Monitors and their status, run
+  history, step timelines with failure screenshots, Run now, create and edit forms, and the
+  alert log. See [Dashboard](#dashboard).
+- **docker compose** stack with Postgres, Redis, API (with the dashboard) and worker.
 
 ## Quickstart: CLI
 
@@ -141,13 +144,14 @@ Timings above come from a local fixture server and say nothing about real stores
 ```bash
 cp .env.example .env          # set POSTGRES_PASSWORD and API_TOKEN
 docker compose up -d --build --wait
+open http://localhost:3000/       # dashboard; it asks for API_TOKEN
 open http://localhost:3000/docs   # OpenAPI UI
 ```
 
-Create a monitor:
+Create a monitor in the dashboard, or with the API:
 
 ```bash
-curl -X POST http://localhost:3000/monitors \
+curl -X POST http://localhost:3000/api/monitors \
   -H "authorization: Bearer $API_TOKEN" -H 'content-type: application/json' \
   -d '{
     "name": "Bestseller",
@@ -158,22 +162,35 @@ curl -X POST http://localhost:3000/monitors \
   }'
 ```
 
-Then `GET /monitors/{id}/status`, `GET /monitors/{id}/runs`, `POST /monitors/{id}/runs` (run now)
-and `GET /runs/{id}` (full result). Prometheus metrics are at `GET /metrics` on the API and on
-port 9465 of each worker.
+Then `GET /api/monitors/{id}/status`, `GET /api/monitors/{id}/runs`, `POST /api/monitors/{id}/runs`
+(run now) and `GET /api/runs/{id}` (full result). Prometheus metrics are at `GET /metrics` on the
+API and on port 9465 of each worker.
 
-| Endpoint                         | Purpose                                  |
-| -------------------------------- | ---------------------------------------- |
-| `GET /health`                    | Postgres and Redis reachability (public) |
-| `GET /metrics`                   | Prometheus metrics (public)              |
-| `GET /docs`                      | OpenAPI UI; JSON at `/docs/openapi.json` |
-| `GET/POST /monitors`             | List with latest status, create          |
-| `GET/PATCH/DELETE /monitors/:id` | Read, partial update, delete             |
-| `GET /monitors/:id/status`       | Health, last run, consecutive failures   |
-| `GET /monitors/:id/runs`         | History, newest first, `?limit=&before=` |
-| `POST /monitors/:id/runs`        | Queue a run now (202)                    |
-| `GET /monitors/:id/alerts`       | Alert delivery log                       |
-| `GET /runs/:id`                  | One run with its full result JSON        |
+Every API route answers under `/api` and, as in v0.1, without the prefix: `/api/monitors` and
+`/monitors` are the same route. The dashboard uses `/api`. The one difference at the old paths: a
+browser loading a page (a `GET` whose `Accept` header prefers `text/html`) of a path such as
+`/monitors/<id>` or `/runs/<id>` gets the dashboard page for it. Scripts, `curl` and SDKs send
+`*/*` or `application/json` and get the API, as before. `/health`, `/metrics` and `/docs` are
+always the API.
+
+| Endpoint (also under `/api`)     | Purpose                                                          |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `GET /health`                    | Postgres and Redis reachability (public)                         |
+| `GET /metrics`                   | Prometheus metrics (public)                                      |
+| `GET /docs`                      | OpenAPI UI; JSON at `/docs/openapi.json`                         |
+| `GET/POST /monitors`             | List with latest status, create                                  |
+| `GET/PATCH/DELETE /monitors/:id` | Read, partial update, delete                                     |
+| `GET /monitors/:id/status`       | Health, last run, consecutive failures                           |
+| `GET /monitors/:id/runs`         | History, newest first, `?limit=&before=`                         |
+| `POST /monitors/:id/runs`        | Queue a run now (202)                                            |
+| `GET /monitors/:id/alerts`       | Alert delivery log of one monitor                                |
+| `GET /alerts`                    | Alert delivery log of all monitors, `?monitorId=&limit=&before=` |
+| `GET /runs/:id`                  | One run with its full result JSON and its artifact files         |
+| `GET /runs/:id/artifacts/:name`  | A screenshot (PNG) or trace (zip) the run's result names         |
+
+Slack URLs are masked and webhook secrets are never returned. To keep a saved channel when you
+`PATCH` the `alerts` list, send `{ "type": "stored", "index": <its position in alerts> }` in its
+place, for example `"alerts": [{ "type": "stored", "index": 0 }, { "type": "webhook", "url": "..." }]`.
 
 ### Outbound URL checks
 
@@ -215,11 +232,63 @@ Counts are in the worker metrics (`checkout_sentinel_runs_swept_total`,
 lost run finishes after all, are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#housekeeping-stuck-runs-and-retention).
 
+## Dashboard
+
+The API serves the dashboard at `/` (the `apps/web` build; `pnpm build` and the api Docker image
+include it). It talks to the API under `/api` on the same origin, so no CORS setup is needed.
+
+![Monitors list in light mode: five monitors with status, platform, devices, schedule, last run and counts](docs/images/dashboard-monitors-light.png)
+
+![Monitor detail in dark mode: a failing monitor with its latest result by device, run history and Run now](docs/images/dashboard-monitor-dark.png)
+
+![Run detail in light mode: the mobile journey's step timeline, the failure message and the screenshot taken when the step failed](docs/images/dashboard-run-light.png)
+
+These screenshots are real runs against the local fixture stores, taken with
+`pnpm --filter @checkout-sentinel/web screenshots` (after `pnpm build`; it empties the e2e test
+database and Redis DB).
+
+- **Monitors**: name and URL, platform, devices, schedule, health, last run, failed runs in a
+  row and slow steps.
+- **Monitor**: latest result per device, run history (10 per page), Run now, edit and delete.
+  After Run now the page refreshes every 2 seconds until the run finishes.
+- **Run**: per device, each step with its status, duration and position in the journey, the
+  failure message, console errors, page errors, failed requests, step details, the failure
+  screenshot and a trace download.
+- **Create and edit**: the form checks input with the API's own schema
+  (`@checkout-sentinel/core/schemas`), so it accepts and refuses what the API does. Saved Slack
+  URLs and webhook secrets are shown masked and kept unless you remove the channel.
+- **Alert log**: every delivery, newest first, filterable by monitor.
+
+When the API has `API_TOKEN`, the dashboard asks for it once per browser tab. It keeps the token
+in the tab's `sessionStorage` and sends it as a bearer token; closing the tab forgets it. Pages
+follow the system's light or dark setting. Controls are native buttons, links and labelled form
+fields with a visible focus ring, and text meets WCAG AA contrast in both modes.
+
+Alert messages link to `PUBLIC_BASE_URL/runs/<runId>`. Set `PUBLIC_BASE_URL` on the worker to
+the address of the API (for example `https://sentinel.example.com`) and the link opens the run in
+the dashboard.
+
+Settings on the API:
+
+| Variable            | Default                                  | Meaning                                                                                                                                  |
+| ------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `DASHBOARD_ENABLED` | `true`                                   | `false` serves the API only.                                                                                                             |
+| `DASHBOARD_DIR`     | `apps/web/dist`                          | Directory of the built dashboard. The Docker image sets `/app/web`. Without an `index.html` there, the API starts without the dashboard. |
+| `ARTIFACTS_DIR`     | `./artifacts` (image: `/data/artifacts`) | The workers' artifacts directory, read for screenshots and traces. Mount the same volume on the API, read-only is enough.                |
+
+To work on the dashboard, run the API on port 3000 and start Vite, which forwards `/api` to it
+(`CHECKOUT_SENTINEL_API_URL` changes the target):
+
+```bash
+pnpm --filter @checkout-sentinel/web dev   # http://localhost:5173
+```
+
 ## Architecture
 
 ```mermaid
 flowchart LR
-  user([Merchant or script]) -->|REST + bearer token| api[API<br/>NestJS]
+  browser([Browser]) -->|dashboard at /,<br/>API under /api| api[API<br/>NestJS]
+  user([Script]) -->|REST + bearer token| api
   cli([CLI]) --> core
   api -->|monitors, runs, state| pg[(Postgres)]
   api -->|job schedulers<br/>one per monitor| redis[(Redis<br/>BullMQ)]
@@ -227,6 +296,8 @@ flowchart LR
   worker --> core[core engine<br/>Playwright]
   core -->|Chromium, one context<br/>per journey| store[(Store<br/>Shopify / WooCommerce)]
   worker -->|results, state machine| pg
+  worker -->|screenshots, traces| files[(Artifacts<br/>volume)]
+  api -.->|reads| files
   worker -->|state changes only| alerts[Webhook / Slack]
   prom([Prometheus]) -.->|/metrics| api
   prom -.->|:9465/metrics| worker
@@ -383,9 +454,9 @@ job never sends the same alert twice. Generic webhooks receive a versioned JSON 
 pnpm install
 pnpm lint            # ESLint + Prettier check
 pnpm typecheck       # strict TypeScript across the workspace
-pnpm test:unit       # no browser, no services
+pnpm test:unit       # no browser, no services; includes the dashboard's component tests
 pnpm test:integration  # engine and CLI against local fixture stores (needs Chromium)
-pnpm test:e2e        # API and worker against Postgres and Redis; skipped if unreachable
+pnpm test:e2e        # API, worker and dashboard against Postgres and Redis; skipped if unreachable
 pnpm build
 ```
 
@@ -429,7 +500,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
   their cart is not verified.
 - Each run adds an item to a real cart. The session is discarded afterwards, but some
   abandoned-cart or analytics tools may count it. Filter on the user agent.
-- The API has a single static bearer token. There are no users, teams or roles yet.
+- The API has a single static bearer token. There are no users, teams or roles yet. Anyone
+  with the token can see and change every monitor, in the dashboard as with the API.
+- The dashboard shows screenshots and offers traces only when the API can read the workers'
+  `ARTIFACTS_DIR`. With separate machines, mount one shared volume on the API and the workers.
 - Alert channels are a generic webhook and Slack. Email and SMS are not built in.
 - Retention deletes artifact files only from the disk of the worker that runs the pass. Workers
   need one shared artifacts volume (the compose stack has one) for old screenshots and traces to
@@ -441,7 +515,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
 
 ## Roadmap
 
-- Hosted dashboard with run history, screenshots and traces in the browser
+- A hosted version with accounts and per-account API keys, built on the dashboard
 - Shopify app for one-click setup on a store
 - OpenTelemetry export of runs and steps
 - More platforms: BigCommerce, Magento (Adobe Commerce), Wix, Squarespace

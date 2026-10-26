@@ -82,8 +82,39 @@ Result schema version: 1 (unchanged).
   form runs a jQuery stand-in for WooCommerce's variation script that behaves like 9.8 and
   later; the fixtures package depends on `jquery` to serve it. `pnpm fixtures` starts 14 stores.
 
+- Dashboard (`apps/web`, Vue 3 and Vite), served by the API at `/`: monitors with their
+  status, last run, failed runs in a row and slow steps; a monitor's latest result per device,
+  paginated run history, Run now, edit and delete; a run's step timeline per device with
+  durations, the failure message, console and page errors, failed requests, step details, the
+  failure screenshot and a trace download; create and edit forms validated with the API's own
+  schemas; and the alert log. Asks for `API_TOKEN` on the first 401 and keeps it in the tab's
+  `sessionStorage`. Light and dark mode follow the system setting.
+- Every API route also answers under `/api` (`/api/monitors` is `/monitors`). The OpenAPI
+  document lists `/api` as its server; paths and metric route labels are unchanged.
+- `GET /alerts`: alert deliveries of every monitor with the monitor's name, newest first,
+  `?monitorId=&limit=&before=` (the cursor is the last delivery's id).
+- `GET /runs/:id/artifacts/:name` serves a screenshot or trace that the run's result names, from
+  the API's `ARTIFACTS_DIR`. `GET /runs/:id` lists them in a new `artifacts` field.
+- A `PATCH` of `alerts` can keep a saved channel with `{ "type": "stored", "index": n }`, since
+  Slack URLs and webhook secrets are never returned. An index past the end of the saved list is
+  a 400 at `alerts.<position>.index`.
+- `@checkout-sentinel/core/schemas`: the monitor and result schemas without Playwright or Node
+  modules, for browser code.
+- API settings `DASHBOARD_ENABLED` (default `true`), `DASHBOARD_DIR` (default the
+  `apps/web/dist` build) and `ARTIFACTS_DIR` (default `./artifacts`, as on the worker).
+- The api Docker image contains the built dashboard (`DASHBOARD_DIR=/app/web`,
+  `ARTIFACTS_DIR=/data/artifacts`). docker compose mounts the artifacts volume read-only on the
+  API.
+- `pnpm --filter @checkout-sentinel/web screenshots` takes the README screenshots from real
+  runs against the fixture stores.
+
 ### Changed
 
+- A browser loading a page (a `GET` whose `Accept` header prefers `text/html`) of a path outside
+  `/api`, `/docs`, `/health` and `/metrics` now gets the dashboard instead of the API's JSON
+  answer. Requests from scripts and SDKs (`Accept: */*` or `application/json`) are answered as
+  before. So the run link in alerts (`PUBLIC_BASE_URL/runs/<id>`) opens the dashboard.
+- `pnpm test:unit` also runs the dashboard's tests (the Vitest project `web`).
 - Alert deliveries no longer use `fetch`. A redirect answer is now a final failed delivery
   (`HTTP 302 (redirects are not followed)`) instead of a retried network error.
 - Local development and tests against fixture stores on 127.0.0.1 need

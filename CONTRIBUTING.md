@@ -53,6 +53,13 @@ pnpm build
 db:generate --name <change>` and commit the generated SQL. Never edit an applied migration.
 - **TypeScript** is strict; avoid `any` and non-null assertions in source code.
 - **Comments** explain constraints and reasons, not what the next line does.
+- **Dashboard.** `apps/web` is Vue 3 with the Composition API and hand-written CSS on the
+  tokens in `src/styles/tokens.css`. Keep controls native (`<button>`, `<a>`, labelled inputs),
+  keep text at WCAG AA contrast in both modes, and render store content as text, never with
+  `v-html`. Validate forms with the schemas from `@checkout-sentinel/core/schemas` rather than
+  repeating rules. Component tests go in `apps/web/test/unit` (Vitest with jsdom); run the app
+  with `pnpm --filter @checkout-sentinel/web dev` against an API on port 3000. After a visible
+  change, retake the README screenshots with `pnpm --filter @checkout-sentinel/web screenshots`.
 - **Docs.** README and docs/ARCHITECTURE.md use plain, concrete English. No made-up numbers.
 
 ## Commits
