@@ -26,6 +26,7 @@ import {
 import type { TargetGuard } from './ssrf.js';
 import {
   CHECKOUT_TARGETS,
+  SCRIPT_DISABLED_CONTROLS,
   addToCartStrategies,
   isCartAddRequest,
   matchesCheckoutUrl,
@@ -101,9 +102,9 @@ function fileSafe(value: string): string {
   return value.replace(/[^a-z0-9_-]+/gi, '-');
 }
 
-async function hasClass(locator: Locator, className: string): Promise<boolean> {
+async function scriptDisabled(locator: Locator): Promise<boolean> {
   return locator
-    .evaluate((element, name) => element.classList.contains(name), className)
+    .evaluate((element, selector) => element.matches(selector), SCRIPT_DISABLED_CONTROLS)
     .catch(() => false);
 }
 
@@ -130,7 +131,7 @@ async function findAddToCart(
         if (
           (await candidate.isVisible()) &&
           (await candidate.isEnabled()) &&
-          !(strategy.disabledClass && (await hasClass(candidate, strategy.disabledClass)))
+          !(await scriptDisabled(candidate))
         ) {
           return { locator: candidate, strategy, hiddenMatches: hiddenCount };
         }

@@ -408,6 +408,26 @@ describe('variant selection', () => {
     expect(target.cartAdds()).toEqual([]);
   });
 
+  it('WooCommerce: a class-disabled button counts as disabled for every strategy', async () => {
+    // Attributes drawn as radio buttons are not chosen, so the button keeps its class
+    // "disabled". The generic strategy finds the same button by its name, "Add to cart".
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      wooAttributeInputs: 'radio',
+    });
+    const result = await run(target);
+    expect(result.status).toBe('failed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      const journey = result.journeys.find((j) => j.device === device);
+      expect(journey?.failedStep).toBe('find_add_to_cart');
+      expect(stepOf(result, device, 'find_add_to_cart')?.message).toBe(
+        'Add-to-cart control exists (button.single_add_to_cart_button) but is hidden or disabled at this viewport',
+      );
+    }
+    expect(target.cartAdds()).toEqual([]);
+  });
+
   it('WooCommerce: fails with "no available variant" when every variation is out of stock', async () => {
     const target = await store({ platform: 'woocommerce', variant: 'variants-sold-out' });
     const result = await run(target);
