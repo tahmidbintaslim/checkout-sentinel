@@ -10,7 +10,8 @@ import { createAppRouter } from './router';
 import './styles/tokens.css';
 import './styles/base.css';
 
-const demo = import.meta.env.VITE_DEMO === '1';
+// Only `vite build --mode demo` sets this; a VITE_* variable would reach every mode.
+const demo = import.meta.env.MODE === 'demo';
 const client = createApiClient({
   token: () => readToken(),
   onUnauthorized: markUnauthorized,

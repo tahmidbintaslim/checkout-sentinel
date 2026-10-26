@@ -9,7 +9,7 @@ const apiTarget = process.env.CHECKOUT_SENTINEL_API_URL ?? 'http://127.0.0.1:300
 const root = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * The read-only demo (vite build --mode demo, VITE_DEMO=1 from .env.demo) ships the sample
+ * The read-only demo (vite build --mode demo; the app checks import.meta.env.MODE) ships the sample
  * data from demo/data/ next to the app, and a 404.html copy of the app so static hosts that
  * serve it for unknown paths (GitHub Pages) open deep links such as /runs/<id>.
  */

@@ -288,9 +288,10 @@ What is real and what is not:
   webhook. No database, Redis or worker is involved.
 - Every write (Run now, create, edit, delete) answers 403 with a read-only message.
 
-The build is `vite build --mode demo` (`VITE_DEMO=1` from `apps/web/.env.demo`): the API client
-reads `demo-data/` instead of `/api`. `.github/workflows/demo-pages.yml` publishes it to GitHub
-Pages on every push to `main` once Pages is set to deploy from GitHub Actions
+The build is `vite build --mode demo` (the app checks `import.meta.env.MODE`): the API client
+reads `demo-data/` instead of `/api`, and the API token page is left out. `.github/workflows/demo-pages.yml` publishes it to GitHub
+Pages when a push to `main` changes `apps/web`, `packages/core`, the workflow, `package.json`,
+`pnpm-lock.yaml` or `pnpm-workspace.yaml` (or when run by hand), once Pages is set to deploy from GitHub Actions
 (Settings > Pages > Source). `apps/web/vercel.json` holds the same build for a Vercel project
 with `apps/web` as its root directory.
 

@@ -31,6 +31,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test:unit
       - run: pnpm build
+      - name: Build the read-only demo
+        run: pnpm --filter @checkout-sentinel/web build:demo
 
   integration:
     name: Integration and e2e tests (Chromium, Postgres, Redis)

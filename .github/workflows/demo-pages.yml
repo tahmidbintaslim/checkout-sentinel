@@ -6,17 +6,22 @@ name: Demo (GitHub Pages)
 on:
   push:
     branches: [main]
-    paths: ['apps/web/**', 'packages/core/**', '.github/workflows/demo-pages.yml']
+    paths:
+      - 'apps/web/**'
+      - 'packages/core/**'
+      - '.github/workflows/demo-pages.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: demo-pages
-  cancel-in-progress: true
+  # A Pages deploy that is cut off midway can leave the site half published.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -24,6 +29,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 11.15.1
@@ -41,6 +48,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

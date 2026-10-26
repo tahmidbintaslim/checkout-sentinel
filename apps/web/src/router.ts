@@ -23,7 +23,10 @@ export const routes: RouteRecordRaw[] = [
   { path: '/monitors/:id/edit', name: 'monitor-edit', component: MonitorFormView, props: true },
   { path: '/runs/:id', name: 'run', component: RunDetailView, props: true },
   { path: '/alerts', name: 'alerts', component: AlertsView },
-  { path: '/settings', name: 'settings', component: SettingsView },
+  // The read-only demo has no API and no token to enter.
+  import.meta.env.MODE === 'demo'
+    ? { path: '/settings', name: 'settings', redirect: '/' }
+    : { path: '/settings', name: 'settings', component: SettingsView },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
 ];
 

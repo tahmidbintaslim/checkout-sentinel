@@ -1,5 +1,5 @@
 /**
- * The read-only demo build (VITE_DEMO=1) answers the API client's requests from static JSON
+ * The read-only demo build (vite build --mode demo) answers the API client's requests from static JSON
  * written by scripts/demo-data.ts, served under <base>demo-data/. Every write answers 403, so
  * the dashboard shows its usual error notice instead of pretending a change was saved.
  */

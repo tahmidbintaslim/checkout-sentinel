@@ -6,7 +6,7 @@ import TokenForm from './components/TokenForm.vue';
 
 const main = ref<HTMLElement | null>(null);
 const router = useRouter();
-const demo = import.meta.env.VITE_DEMO === '1';
+const demo = import.meta.env.MODE === 'demo';
 
 // After moving to another page, start keyboard and screen reader users at its content.
 router.afterEach((to, from) => {
@@ -29,7 +29,7 @@ router.afterEach((to, from) => {
           <li>
             <RouterLink to="/alerts" class="nav-link" active-class="active">Alert log</RouterLink>
           </li>
-          <li>
+          <li v-if="!demo">
             <RouterLink to="/settings" class="nav-link" active-class="active">API token</RouterLink>
           </li>
         </ul>

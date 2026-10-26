@@ -17,7 +17,8 @@ All notable changes are recorded here. The format follows
 
 ### Changed
 
-- The dashboard's router uses the Vite base path, so a build under a subpath (`--base`) works.
+- The dashboard's router and the demo data follow the Vite base path (`--base`). The API client
+  still calls `/api` on the same origin.
 
 ## [0.2.0] - 2026-10-26
 
