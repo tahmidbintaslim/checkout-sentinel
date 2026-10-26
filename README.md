@@ -290,13 +290,19 @@ Shopify:
 
 - Product data comes from `/products/<handle>.js` (the AJAX product endpoint, keeping the page's
   locale prefix), or from product JSON in a `<script type="application/json">` on the page when
-  the endpoint does not answer.
+  the endpoint does not answer. The endpoint is always read from the page's own origin: a page
+  path that would point it at another host (one that starts with `//`) is not used. It is read
+  with the journey's request client, so with the SSRF guard on it goes through the egress proxy
+  like the browser's own requests, redirect hops included.
 - The variant is the one in the URL's `?variant=` when that one is available, else the first
   variant with `available: true`.
 - Each option is set through the theme's own select or radio swatch, found by the option's name
   (`options[Size]`, `Size-1`), its label or legend, its position, and last by value alone. A
-  radio is set by clicking its label. The journey then checks that the form's `id` field moved
-  to the chosen variant.
+  radio is set by clicking its label. Quantity fields (named `quantity` or `qty`, or inside a
+  `.quantity`, `quantity-input` or `quantity-selector` element) and the variant `id` field are
+  never used as options, so a quantity-break radio with the value `2` is not taken for a
+  "Pack: 2" option. The journey then checks that the form's `id` field moved to the chosen
+  variant.
 - If no matching inputs are found, or the theme does not move the `id`, the hidden
   `input[name="id"]` of the product's `/cart/add` form is set directly.
 
@@ -305,11 +311,20 @@ WooCommerce:
 - Variation data comes from `data-product_variations` on `form.variations_form`. The first
   variation that is in stock, purchasable, active and visible is chosen; an "any" attribute takes
   the first option the form offers.
-- Each attribute select is set in turn, then the journey waits for WooCommerce to fill
-  `variation_id` and enable the button.
+- Each attribute select is set in turn, then the journey waits for WooCommerce's answer for that
+  variation. WooCommerce 9.8 and later fill `variation_id` at once but update the button 300 ms
+  later, so for that time the button still describes the previous variation. With WooCommerce's
+  script on the page (jQuery and `jQuery.fn.wc_variation_form`), the answer is its
+  `show_variation` event for the variation in `variation_id`: in stock when the event says the
+  variation is purchasable and the button is enabled after it. A theme with its own script has
+  no such event, and none comes when the form already shows the chosen attributes; there the
+  answer is the variation id and the button once both have stayed the same for 600 ms.
 - For products with many variations WooCommerce writes `false` instead of the data and asks the
   store for each combination. The journey then tries combinations in page order, at most 20,
-  until one resolves in stock.
+  until one resolves in stock. Each lookup may take as long as the step timeout allows, since a
+  slow store is not a sold out one. The step fails with `No available variant` only when every
+  combination answered out of stock; when the lookup did not answer in time it fails with
+  `The variation lookup did not answer within the step timeout (...)`.
 
 Detection of an unknown platform does not stop this: a page with `form.variations_form` is
 treated as WooCommerce and a page with a `/cart/add` form as Shopify.
@@ -326,10 +341,11 @@ details stay as before.
 Quantity is never changed: the journey leaves the quantity field at the page's default, which is
 1 on standard themes.
 
-On WooCommerce, a button with the class `disabled` counts as disabled. WooCommerce keeps the
-button of a variable product enabled for the browser and refuses the click in its own script
-until a variation in stock is chosen, so a click would otherwise do nothing and the journey
-would fail later at `verify_cart`.
+On WooCommerce, a `.single_add_to_cart_button` with the class `disabled` counts as disabled,
+whichever selector found it (the generic one finds the same button by its name, "Add to cart").
+WooCommerce keeps the button of a variable product enabled for the browser and refuses the
+click in its own script until a variation in stock is chosen, so a click would otherwise do
+nothing and the journey would fail later at `verify_cart`.
 
 ### Being polite to the store
 
@@ -397,6 +413,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
 - WooCommerce products whose variations load over AJAX are tried at most 20 combinations
   deep. If none of those is in stock the step fails with
   `No available variant among the first 20 of N option combinations`, even if a later one is.
+  Each combination takes at least WooCommerce's 300 ms plus the store's lookup time, so a long
+  search needs a step timeout to match.
+- WooCommerce attributes are set through the variations form's attribute selects (swatch
+  plugins keep them, hidden, and the journey sets them directly). A theme that draws attributes
+  without selects is not handled: its button keeps the class `disabled` and the step fails with
+  "hidden or disabled".
 - Product add-ons, personalisation fields, bundles and subscriptions that require input
   before add to cart are not filled in.
 - Stores behind bot protection, a password page, a geo redirect or a CAPTCHA will fail or be

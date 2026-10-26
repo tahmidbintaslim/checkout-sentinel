@@ -60,18 +60,27 @@ Result schema version: 1 (unchanged).
   for running rows. The index is not built `CONCURRENTLY` either. Runs from before the migration
   have no job id; only the sweep finishes those.
 - Variant selection in `find_add_to_cart`. Before looking for the add-to-cart control, the
-  journey chooses an available variant. Shopify: product data from `/products/<handle>.js` or
-  product JSON in the page; the `?variant=` in the URL when available, else the first available
-  variant; set through the theme's selects and radio swatches, falling back to the form's hidden
-  `id`. WooCommerce: the first variation in stock from `data-product_variations`, set through
-  the attribute selects, waiting for `variation_id` and an enabled button; without variation
-  data, combinations are tried in order (at most 20). Quantity is never changed.
+  journey chooses an available variant. Shopify: product data from `/products/<handle>.js` on
+  the page's own origin, or product JSON in the page; the `?variant=` in the URL when
+  available, else the first available variant; set through the theme's selects and radio
+  swatches (never a quantity field), falling back to the form's hidden `id`. WooCommerce: the
+  first variation in stock from `data-product_variations`, set through the attribute selects;
+  the answer for a variation is WooCommerce's `show_variation` event when its script is on the
+  page (9.8 and later update the button 300 ms after `variation_id`), else the variation id and
+  button once they have stayed the same for 600 ms. Without variation data, combinations are
+  tried in order (at most 20), each lookup for as long as the step timeout allows. A lookup
+  that does not answer in time fails the step as "did not answer within the step timeout", not
+  as sold out. Quantity is never changed.
 - Step details `variant`, `variantId`, `variantSelectedBy`, `variantSource`,
   `availableVariants` and `totalVariants` on `find_add_to_cart` when a variant was chosen. The
   CLI prints the variant next to the matched control.
 - `find_add_to_cart` fails with `No available variant: ...` when every variant is sold out.
 - Fixture variants `variants` and `variants-sold-out` for both platforms, and fixture options
-  `productEndpoint`, `variantPickers` and `ajaxVariations`. `pnpm fixtures` starts 14 stores.
+  `productEndpoint`, `shopifyVariants`, `variantPickers`, `quantityPicker`, `ajaxVariations`,
+  `variationScript`, `wooDefaultAttributes`, `wooInStock`, `wooAttributeInputs`,
+  `lockedAddToCart`, `variationLookupDelayMs` and `platformSignals`. The WooCommerce variations
+  form runs a jQuery stand-in for WooCommerce's variation script that behaves like 9.8 and
+  later; the fixtures package depends on `jquery` to serve it. `pnpm fixtures` starts 14 stores.
 
 ### Changed
 
@@ -85,9 +94,10 @@ Result schema version: 1 (unchanged).
   outcome; the job outcome is `discarded` only when the same worker still held the job. A worker
   exception no longer overwrites a run that already has a final status.
 - The worker stores a run's result and applies it to the monitor's state in one transaction.
-- A WooCommerce `button.single_add_to_cart_button` with the class `disabled` counts as disabled
-  in `find_add_to_cart`. A variable product with no variation chosen used to be clicked, and the
-  journey failed later at `verify_cart`.
+- A WooCommerce `.single_add_to_cart_button` with the class `disabled` counts as disabled in
+  `find_add_to_cart`, whichever strategy matched it (the generic strategy finds the same button
+  by its name). A variable product with no variation chosen used to be clicked, and the journey
+  failed later at `verify_cart`.
 - A Shopify product whose only variant is sold out now fails `find_add_to_cart` with
   `No available variant: the only variant is sold out` instead of "hidden or disabled".
 
