@@ -46,8 +46,10 @@ router.afterEach((to, from) => {
         <TokenForm @saved="tokenChanged" />
       </div>
     </section>
+    <!-- Keyed on the path only: a hash (summary links, the skip link) or query (the alert filter)
+         change must not remount the page and drop what was typed or focused. -->
     <RouterView v-slot="{ Component, route }">
-      <component :is="Component" :key="`${route.fullPath}#${authState.version}`" />
+      <component :is="Component" :key="`${route.path}#${authState.version}`" />
     </RouterView>
   </main>
 </template>

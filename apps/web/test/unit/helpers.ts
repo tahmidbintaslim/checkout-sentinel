@@ -2,6 +2,7 @@ import { flushPromises, mount, type ComponentMountingOptions } from '@vue/test-u
 import { vi } from 'vitest';
 import { defineComponent, h, type Component } from 'vue';
 import { RouterView, createMemoryHistory } from 'vue-router';
+import App from '../../src/App.vue';
 import type { ApiClient } from '../../src/api/client';
 import type { Monitor, RunDetail } from '../../src/api/types';
 import { apiKey } from '../../src/composables/api';
@@ -41,6 +42,19 @@ export async function mountAt(path: string, api: FakeApi) {
   await router.isReady();
   const Root = defineComponent({ render: () => h(RouterView) });
   const wrapper = mount(Root, {
+    attachTo: document.body,
+    global: { plugins: [router], provide: { [apiKey as symbol]: api } },
+  });
+  await flushPromises();
+  return { wrapper, router };
+}
+
+/** Mounts the whole app, header and RouterView key included, at `path`. */
+export async function mountApp(path: string, api: FakeApi | ApiClient) {
+  const router = createAppRouter(createMemoryHistory());
+  await router.push(path);
+  await router.isReady();
+  const wrapper = mount(App, {
     attachTo: document.body,
     global: { plugins: [router], provide: { [apiKey as symbol]: api } },
   });
