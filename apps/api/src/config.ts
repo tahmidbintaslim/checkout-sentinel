@@ -13,6 +13,15 @@ const EnvSchema = TargetPolicyEnvSchema.extend({
   /** When set, every endpoint except /health, /metrics and /docs requires "Authorization: Bearer <token>". */
   API_TOKEN: z.string().min(16).optional(),
   MIGRATE_ON_BOOT: booleanFromEnv.default(true),
+  /**
+   * The worker's artifacts directory (screenshots and traces), read by GET /runs/:id/artifacts.
+   * Same default as the worker; with separate containers, mount the same volume on both.
+   */
+  ARTIFACTS_DIR: z.string().min(1).default('./artifacts'),
+  /** Serve the dashboard (the apps/web build) at /. */
+  DASHBOARD_ENABLED: booleanFromEnv.default(true),
+  /** Directory of the built dashboard. Default: apps/web/dist in this repository. */
+  DASHBOARD_DIR: z.string().min(1).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

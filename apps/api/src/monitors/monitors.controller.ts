@@ -31,7 +31,7 @@ import {
 } from '@checkout-sentinel/core';
 import type { AlertDeliveryRepository, RunRepository } from '@checkout-sentinel/db';
 import { DELIVERY_REPOSITORY, RUN_REPOSITORY } from '../tokens.js';
-import { toMonitorDto, toRunSummaryDto, toStatusDto } from './monitor.mapper.js';
+import { toAlertDto, toMonitorDto, toRunSummaryDto, toStatusDto } from './monitor.mapper.js';
 import { MonitorsService } from './monitors.service.js';
 
 export const RunListQuerySchema = z.object({
@@ -131,16 +131,6 @@ export class MonitorsController {
   @ApiNotFoundResponse()
   async alerts(@Param('id', uuid) id: string) {
     await this.service.get(id);
-    return (await this.deliveries.listForMonitor(id)).map((d) => ({
-      id: d.id,
-      runId: d.runId,
-      kind: d.kind,
-      channelType: d.channelType,
-      status: d.status,
-      responseStatus: d.responseStatus,
-      error: d.error,
-      createdAt: d.createdAt.toISOString(),
-      sentAt: d.sentAt?.toISOString() ?? null,
-    }));
+    return (await this.deliveries.listForMonitor(id)).map(toAlertDto);
   }
 }

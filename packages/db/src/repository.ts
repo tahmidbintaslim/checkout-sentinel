@@ -486,4 +486,46 @@ export class AlertDeliveryRepository {
       .orderBy(desc(alertDeliveries.createdAt))
       .limit(limit);
   }
+
+  /**
+   * Deliveries of every monitor (or one), newest first, with the monitor's name. Keyset
+   * paginated on (created_at, id): `before` is the id of the last delivery of the previous
+   * page, compared at the database's full timestamp precision. A cursor whose delivery was
+   * deleted since (retention) ends the list.
+   */
+  async listPage(options: {
+    limit: number;
+    monitorId?: string | undefined;
+    before?: string | undefined;
+  }): Promise<AlertDeliveryPage> {
+    const rows = await this.db
+      .select({ delivery: alertDeliveries, monitorName: monitors.name })
+      .from(alertDeliveries)
+      .innerJoin(monitors, eq(monitors.id, alertDeliveries.monitorId))
+      .where(
+        and(
+          options.monitorId ? eq(alertDeliveries.monitorId, options.monitorId) : undefined,
+          options.before
+            ? sql`(${alertDeliveries.createdAt}, ${alertDeliveries.id}) < (
+                select prev.created_at, prev.id from ${alertDeliveries} prev
+                where prev.id = ${options.before})`
+            : undefined,
+        ),
+      )
+      .orderBy(desc(alertDeliveries.createdAt), desc(alertDeliveries.id))
+      .limit(options.limit + 1);
+    const items = rows
+      .slice(0, options.limit)
+      .map((row) => ({ ...row.delivery, monitorName: row.monitorName }));
+    const last = items.at(-1);
+    return { items, nextCursor: rows.length > options.limit && last ? last.id : null };
+  }
+}
+
+export type AlertLogEntry = AlertDeliveryRow & { monitorName: string };
+
+export interface AlertDeliveryPage {
+  items: AlertLogEntry[];
+  /** Pass as `before` to get the next (older) page. */
+  nextCursor: string | null;
 }

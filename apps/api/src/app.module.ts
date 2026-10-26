@@ -1,6 +1,7 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { AlertsController } from './alerts/alerts.controller.js';
 import { ApiTokenGuard } from './common/auth.guard.js';
 import type { ApiConfig } from './config.js';
 import { HealthController } from './health/health.controller.js';
@@ -23,12 +24,19 @@ export class AppModule {
             base: { service: 'checkout-sentinel-api' },
             redact: ['req.headers.authorization', 'req.headers.cookie'],
             autoLogging: {
+              // Runs after the /api alias, so /api/health arrives here as /health.
               ignore: (req) => req.url === '/health' || req.url === '/metrics',
             },
           },
         }),
       ],
-      controllers: [HealthController, MetricsController, MonitorsController, RunsController],
+      controllers: [
+        HealthController,
+        MetricsController,
+        MonitorsController,
+        RunsController,
+        AlertsController,
+      ],
       providers: [MonitorsService, { provide: APP_GUARD, useClass: ApiTokenGuard }],
     };
   }

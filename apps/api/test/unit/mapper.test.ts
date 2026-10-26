@@ -29,6 +29,29 @@ describe('loadApiConfig', () => {
     });
   });
 
+  it('reads the dashboard and artifacts settings', () => {
+    expect(loadApiConfig({ DATABASE_URL: 'postgres://x' })).toMatchObject({
+      ARTIFACTS_DIR: './artifacts',
+      DASHBOARD_ENABLED: true,
+    });
+    expect(loadApiConfig({ DATABASE_URL: 'postgres://x' }).DASHBOARD_DIR).toBeUndefined();
+    expect(
+      loadApiConfig({
+        DATABASE_URL: 'postgres://x',
+        ARTIFACTS_DIR: '/data/artifacts',
+        DASHBOARD_ENABLED: 'false',
+        DASHBOARD_DIR: '/app/web',
+      }),
+    ).toMatchObject({
+      ARTIFACTS_DIR: '/data/artifacts',
+      DASHBOARD_ENABLED: false,
+      DASHBOARD_DIR: '/app/web',
+    });
+    expect(() => loadApiConfig({ DATABASE_URL: 'postgres://x', DASHBOARD_ENABLED: 'no' })).toThrow(
+      /DASHBOARD_ENABLED/,
+    );
+  });
+
   it('rejects short API tokens and a missing DATABASE_URL', () => {
     expect(() => loadApiConfig({ DATABASE_URL: 'postgres://x', API_TOKEN: 'short' })).toThrow(
       /API_TOKEN/,
