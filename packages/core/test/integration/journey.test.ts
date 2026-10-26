@@ -225,6 +225,34 @@ describe('variant selection', () => {
     expect(target.cartAdds().map((add) => add.variantId)).toEqual(['4302', '4302']);
   });
 
+  it('Shopify: never takes a quantity radio for an option with the same value', async () => {
+    const target = await store({
+      platform: 'shopify',
+      variantPickers: 'custom',
+      quantityPicker: 'radios',
+      shopifyVariants: {
+        options: ['Pack'],
+        variants: [
+          { id: 4301, values: ['1'], available: false },
+          { id: 4302, values: ['2'], available: true },
+          { id: 4303, values: ['3'], available: true },
+        ],
+      },
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: '2',
+      variantId: '4302',
+      variantSelectedBy: 'hidden input',
+    });
+    expect(stepOf(result, 'desktop', 'verify_cart')?.details).toMatchObject({
+      cartBefore: 0,
+      cartAfter: 1,
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '4302', quantity: 1 }]);
+  });
+
   it('Shopify: fails with "no available variant" when every variant is sold out', async () => {
     const target = await store({ platform: 'shopify', variant: 'variants-sold-out' });
     const result = await run(target);

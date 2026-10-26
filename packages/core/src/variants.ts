@@ -256,13 +256,23 @@ function markOptionControl(spec: OptionSpec): MarkedControl | null {
     return Math.max(score, 1);
   };
 
+  // The variant id field, quantity fields (a quantity-break radio group shares numeric values
+  // with pack or size options) and the country and language pickers are never option controls.
+  const notAnOption = (control: HTMLInputElement | HTMLSelectElement): boolean => {
+    const field = norm(control.getAttribute('name'));
+    return (
+      field === 'id' ||
+      /quantity|(^|[^a-z])qty([^a-z]|$)/.test(field) ||
+      control.closest(
+        '.quantity, quantity-input, quantity-selector, form[action*="/localization"]',
+      ) !== null
+    );
+  };
+
   type Candidate = { control: HTMLSelectElement | HTMLInputElement; score: number } & MarkedControl;
   const candidates: Candidate[] = [];
   for (const select of Array.from(document.querySelectorAll('select'))) {
-    const field = select.getAttribute('name') ?? '';
-    if (field === 'id' || field === 'quantity' || select.closest('form[action*="/localization"]')) {
-      continue;
-    }
+    if (notAnOption(select)) continue;
     const options = Array.from(select.options);
     const option =
       options.find((o) => norm(o.value) === value) ?? options.find((o) => norm(o.text) === value);
@@ -279,7 +289,7 @@ function markOptionControl(spec: OptionSpec): MarkedControl | null {
   for (const radio of Array.from(
     document.querySelectorAll<HTMLInputElement>('input[type="radio"]'),
   )) {
-    if (norm(radio.value) !== value || radio.disabled) continue;
+    if (norm(radio.value) !== value || radio.disabled || notAnOption(radio)) continue;
     const label = radio.labels?.[0];
     candidates.push({
       control: radio,
