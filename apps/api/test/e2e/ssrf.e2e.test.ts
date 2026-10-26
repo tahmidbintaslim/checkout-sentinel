@@ -171,7 +171,7 @@ describe.skipIf(!services.available)('API SSRF guard end to end', () => {
       ],
     });
     expect(created.status).toBe(201);
-    const { id } = (await created.json()) as { id: string };
+    const { id, updatedAt } = (await created.json()) as { id: string; updatedAt: string };
 
     const toPrivate = await call(strictBase, `/monitors/${id}`, 'PATCH', {
       url: 'http://192.168.0.10/products/tee',
@@ -186,6 +186,18 @@ describe.skipIf(!services.available)('API SSRF guard end to end', () => {
     expect(privateAlert.status).toBe(400);
     expect(await issuesOf(privateAlert)).toEqual([
       { path: 'alerts.0.url', message: expect.stringContaining('loopback') },
+    ]);
+    // New channels next to stored references are checked too, at their own position.
+    const mixed = await call(strictBase, `/monitors/${id}`, 'PATCH', {
+      alerts: [
+        { type: 'stored', index: 0 },
+        { type: 'webhook', url: 'http://[::1]:9000/hook' },
+      ],
+      expectedUpdatedAt: updatedAt,
+    });
+    expect(mixed.status).toBe(400);
+    expect(await issuesOf(mixed)).toEqual([
+      { path: 'alerts.1.url', message: expect.stringContaining('loopback') },
     ]);
 
     const unchanged = (await (await call(strictBase, `/monitors/${id}`)).json()) as {
