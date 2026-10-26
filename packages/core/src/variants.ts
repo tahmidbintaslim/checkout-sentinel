@@ -28,8 +28,12 @@ export interface VariantSelectionOptions {
 
 /** At most this many option combinations are tried on a WooCommerce form without variation data. */
 export const MAX_OPTION_COMBINATIONS = 20;
-/** How long one option combination may take to resolve on a WooCommerce form. */
-const COMBINATION_WAIT_MS = 2_000;
+/**
+ * Without WooCommerce's events, how long a WooCommerce form's variation id and button must stay
+ * unchanged before they count as its answer. WooCommerce 9.8 and later update the button 300 ms
+ * after the variation id.
+ */
+const WOO_SETTLE_MS = 600;
 /** How long the theme may take to move the form's variant id after an option changed. */
 const FORM_ID_WAIT_MS = 5_000;
 const POLL_INTERVAL_MS = 100;
@@ -39,6 +43,9 @@ const MAX_EMBEDDED_JSON_CHARS = 1_000_000;
 const OPTION_MARK = 'data-checkout-sentinel-option';
 const LABEL_MARK = 'data-checkout-sentinel-option-label';
 const FORM_MARK = 'data-checkout-sentinel-form';
+const SHOWN_MARK = 'data-checkout-sentinel-shown';
+/** jQuery event namespace for the handlers the journey adds to a WooCommerce form. */
+const EVENT_NAMESPACE = 'checkoutSentinel';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const remaining = (deadline: number) => Math.max(1, deadline - Date.now());
@@ -576,10 +583,81 @@ function readWooAttributes(formSelector: string): WooAttribute[] {
 
 type WooState = { state: 'available'; id: string } | { state: 'unavailable' | 'pending' };
 
+/** What one `show_variation` event said, as `watchWooEvents` records it on the form. */
+interface ShownVariation {
+  id: string;
+  purchasable: boolean;
+  /** The button after WooCommerce's own handler updated it for this variation. */
+  enabled: boolean;
+}
+
+interface JQueryHandle {
+  on(events: string, handler: (event: unknown, ...args: unknown[]) => void): unknown;
+  off(events: string): unknown;
+}
+type JQueryLike = ((element: Element) => JQueryHandle) & { fn?: Record<string, unknown> };
+
+interface WatchArgs {
+  formSelector: string;
+  mark: string;
+  namespace: string;
+}
+
+const WATCH: WatchArgs = {
+  formSelector: VARIATIONS_FORM,
+  mark: SHOWN_MARK,
+  namespace: EVENT_NAMESPACE,
+};
+
+/**
+ * Runs in the page. WooCommerce's variation script (add-to-cart-variation.js, on jQuery)
+ * announces each variation it shows with a `show_variation` event on the form, after it has
+ * updated the button. Since WooCommerce 9.8 that event comes 300 ms after `variation_id` is
+ * set, and until then the button still describes the previous variation. Starts recording the
+ * events on the form and returns true, or returns false when the script is not on the page.
+ */
+function watchWooEvents(args: WatchArgs): boolean {
+  const form = document.querySelector(args.formSelector);
+  const jq = (window as unknown as { jQuery?: unknown }).jQuery as JQueryLike | undefined;
+  if (!form || typeof jq !== 'function' || typeof jq.fn?.['wc_variation_form'] !== 'function') {
+    return false;
+  }
+  form.removeAttribute(args.mark);
+  const $form = jq(form);
+  $form.off(`.${args.namespace}`);
+  $form.on(`show_variation.${args.namespace}`, (_event, variation, purchasable) => {
+    const button = form.querySelector<HTMLButtonElement>('.single_add_to_cart_button');
+    const id = (variation as { variation_id?: unknown } | null | undefined)?.variation_id;
+    form.setAttribute(
+      args.mark,
+      JSON.stringify({
+        id: typeof id === 'number' || typeof id === 'string' ? String(id) : '',
+        purchasable: purchasable !== false,
+        enabled: button !== null && !button.disabled && !button.classList.contains('disabled'),
+      }),
+    );
+  });
+  return true;
+}
+
+/** Runs in the page: removes what `watchWooEvents` added. */
+function unwatchWooEvents(args: WatchArgs): void {
+  const form = document.querySelector(args.formSelector);
+  form?.removeAttribute(args.mark);
+  const jq = (window as unknown as { jQuery?: unknown }).jQuery as JQueryLike | undefined;
+  if (form && typeof jq === 'function') jq(form).off(`.${args.namespace}`);
+}
+
 /** Runs in the page: what the variations form shows right now. */
-function readWooState(formSelector: string) {
-  const form = document.querySelector(formSelector);
+function readWooState(args: WatchArgs) {
+  const form = document.querySelector(args.formSelector);
   const button = form?.querySelector<HTMLButtonElement>('.single_add_to_cart_button');
+  let shown: ShownVariation | null;
+  try {
+    shown = JSON.parse(form?.getAttribute(args.mark) ?? 'null') as ShownVariation | null;
+  } catch {
+    shown = null;
+  }
   return {
     id:
       form?.querySelector<HTMLInputElement>('input[name="variation_id"], input.variation_id')
@@ -589,49 +667,99 @@ function readWooState(formSelector: string) {
       button !== undefined &&
       !button.disabled &&
       !button.classList.contains('disabled'),
-    unavailable: button?.classList.contains('wc-variation-is-unavailable') ?? false,
-    noMatch: form?.querySelector('.wc-no-matching-variations') !== null,
+    noMatch: form ? form.querySelector('.wc-no-matching-variations') !== null : false,
+    shown,
   };
 }
 
 /**
- * Waits for WooCommerce to resolve the chosen attributes. Its script clears the variation id on
- * every change, so an id means this combination resolved; only then does an "unavailable"
- * button describe it rather than the previous one.
+ * How the journey tells that WooCommerce answered for the attributes it chose. `event`: the
+ * `show_variation` event for the variation now in `variation_id`. `settle`: without that event
+ * (a theme's own script, or nothing was changed), the variation id and the button staying the
+ * same for WOO_SETTLE_MS.
+ */
+type WooWait = 'event' | 'settle';
+
+/**
+ * Waits for WooCommerce to resolve the chosen attributes. Its script clears `variation_id` on
+ * every change, so an id is the answer for this combination, but the button may still show the
+ * previous one for a while.
  */
 async function waitForWooState(
   page: Page,
   expectedId: string | null,
   until: number,
+  wait: WooWait,
 ): Promise<WooState> {
+  // The variation id and button state last seen, and since when.
+  let seenKey: string | null = null;
+  let seenSince = 0;
   while (true) {
-    const s = await page.evaluate(readWooState, VARIATIONS_FORM);
+    const s = await page.evaluate(readWooState, WATCH);
+    if (s.noMatch) return { state: 'unavailable' };
     const resolved = s.id !== '' && s.id !== '0' && (expectedId === null || s.id === expectedId);
-    if (resolved && s.enabled) return { state: 'available', id: s.id };
-    if (s.noMatch || (resolved && s.unavailable)) return { state: 'unavailable' };
+    if (!resolved) {
+      seenKey = null;
+    } else if (wait === 'event') {
+      if (s.shown?.id === s.id) {
+        return s.shown.purchasable && s.shown.enabled
+          ? { state: 'available', id: s.id }
+          : { state: 'unavailable' };
+      }
+    } else {
+      const key = `${s.id} ${String(s.enabled)}`;
+      if (seenKey !== key) {
+        seenKey = key;
+        seenSince = Date.now();
+      } else if (Date.now() - seenSince >= WOO_SETTLE_MS) {
+        return s.enabled ? { state: 'available', id: s.id } : { state: 'unavailable' };
+      }
+    }
     if (Date.now() >= until) return { state: 'pending' };
     await sleep(POLL_INTERVAL_MS);
   }
 }
 
-/** Selects each attribute that differs from what the form shows, in page order. */
+/**
+ * Selects each attribute that differs from what the form shows, in page order. The form is
+ * read again before each one, since WooCommerce clears an attribute that no longer matches.
+ */
 async function applyWooAttributes(
   page: Page,
   attributes: readonly WooAttribute[],
   values: readonly string[],
   deadline: number,
-): Promise<void> {
-  const current = await page.evaluate(readWooAttributes, VARIATIONS_FORM);
-  for (const [index, attribute] of attributes.entries()) {
-    const value = values[index];
-    if (value === undefined || current[index]?.value === value) continue;
-    const select = page
-      .locator(`${VARIATIONS_FORM} select[name=${JSON.stringify(attribute.name)}]`)
-      .first();
-    // Swatch plugins hide the select and drive it from their own buttons.
-    const visible = await select.isVisible();
-    await select.selectOption(value, { force: !visible, timeout: remaining(deadline) });
+): Promise<{ changed: number; failed: boolean }> {
+  let changed = 0;
+  try {
+    for (const [index, attribute] of attributes.entries()) {
+      const value = values[index];
+      const current = await page.evaluate(readWooAttributes, VARIATIONS_FORM);
+      if (value === undefined || current[index]?.value === value) continue;
+      const select = page
+        .locator(`${VARIATIONS_FORM} select[name=${JSON.stringify(attribute.name)}]`)
+        .first();
+      // Swatch plugins hide the select and drive it from their own buttons.
+      const visible = await select.isVisible();
+      await select.selectOption(value, { force: !visible, timeout: remaining(deadline) });
+      changed += 1;
+    }
+    return { changed, failed: false };
+  } catch {
+    return { changed, failed: true };
   }
+}
+
+/** Starts watching for WooCommerce's events, then applies the values. */
+async function chooseWooValues(
+  page: Page,
+  attributes: readonly WooAttribute[],
+  values: readonly string[],
+  deadline: number,
+): Promise<{ wait: WooWait; failed: boolean }> {
+  const events = await page.evaluate(watchWooEvents, WATCH);
+  const { changed, failed } = await applyWooAttributes(page, attributes, values, deadline);
+  return { wait: events && changed > 0 ? 'event' : 'settle', failed };
 }
 
 function wooTitle(attributes: readonly WooAttribute[], values: readonly string[]): string {
@@ -650,59 +778,78 @@ async function selectWooVariation(page: Page, deadline: number): Promise<Variant
   const attributes = await page.evaluate(readWooAttributes, VARIATIONS_FORM);
   if (attributes.length === 0) return { outcome: 'none' };
   const variations = parseWooVariations(await form.getAttribute('data-product_variations'));
+  try {
+    return variations !== null && variations !== 'ajax'
+      ? await chooseFromVariationData(page, attributes, variations, deadline)
+      : await chooseByLookup(page, attributes, deadline);
+  } finally {
+    await page.evaluate(unwatchWooEvents, WATCH).catch(() => undefined);
+  }
+}
 
-  if (variations !== null && variations !== 'ajax') {
-    const counts: Details = {
-      variantSource: 'data-product_variations',
-      availableVariants: variations.filter(isWooVariationAvailable).length,
-      totalVariants: variations.length,
+async function chooseFromVariationData(
+  page: Page,
+  attributes: readonly WooAttribute[],
+  variations: readonly WooVariation[],
+  deadline: number,
+): Promise<VariantSelection> {
+  const counts: Details = {
+    variantSource: 'data-product_variations',
+    availableVariants: variations.filter(isWooVariationAvailable).length,
+    totalVariants: variations.length,
+  };
+  const target = chooseWooVariation(variations);
+  if (!target) {
+    return {
+      outcome: 'unavailable',
+      message:
+        variations.length === 0
+          ? 'No available variant: the variations form lists no variations'
+          : soldOutMessage(variations.length, 'variations', 'out of stock'),
+      details: counts,
     };
-    const target = chooseWooVariation(variations);
-    if (!target) {
-      return {
-        outcome: 'unavailable',
-        message:
-          variations.length === 0
-            ? 'No available variant: the variations form lists no variations'
-            : soldOutMessage(variations.length, 'variations', 'out of stock'),
-        details: counts,
-      };
-    }
-    // An empty attribute value means "any": take the first option the form offers.
-    const values = attributes.map(
-      (attribute) => target.attributes[attribute.name] || (attribute.options[0]?.value ?? ''),
-    );
-    const details: Details = {
-      variant: wooTitle(attributes, values),
-      variantId: target.id,
-      variantSelectedBy: 'theme options',
-      ...counts,
-    };
-    const missing = attributes.find(
-      (attribute, index) => !attribute.options.some((o) => o.value === values[index]),
-    );
-    if (missing) {
-      return {
-        outcome: 'unresolved',
-        message: `Variation ${details.variant} is in stock but the form has no option ${JSON.stringify(values[attributes.indexOf(missing)])} for ${missing.label}`,
-        details,
-      };
-    }
-    try {
-      await applyWooAttributes(page, attributes, values, deadline);
-    } catch {
-      // Reported below: the button did not enable.
-    }
-    const outcome = await waitForWooState(page, target.id, deadline);
-    if (outcome.state === 'available') return { outcome: 'selected', details };
+  }
+  // An empty attribute value means "any": take the first option the form offers.
+  const values = attributes.map(
+    (attribute) => target.attributes[attribute.name] || (attribute.options[0]?.value ?? ''),
+  );
+  const details: Details = {
+    variant: wooTitle(attributes, values),
+    variantId: target.id,
+    variantSelectedBy: 'theme options',
+    ...counts,
+  };
+  const missing = attributes.find(
+    (attribute, index) => !attribute.options.some((o) => o.value === values[index]),
+  );
+  if (missing) {
     return {
       outcome: 'unresolved',
-      message: `Chose ${String(details.variant)} but the add-to-cart button did not enable`,
+      message: `Variation ${details.variant} is in stock but the form has no option ${JSON.stringify(values[attributes.indexOf(missing)])} for ${missing.label}`,
       details,
     };
   }
+  // A failed select is reported below: the button did not enable.
+  const { wait } = await chooseWooValues(page, attributes, values, deadline);
+  const outcome = await waitForWooState(page, target.id, deadline, wait);
+  if (outcome.state === 'available') return { outcome: 'selected', details };
+  return {
+    outcome: 'unresolved',
+    message: `Chose ${String(details.variant)} but the add-to-cart button did not enable`,
+    details,
+  };
+}
 
-  // No variation data in the page: try combinations the way a shopper would, in order.
+/**
+ * No variation data in the page: try combinations the way a shopper would, in order. Each
+ * lookup may take as long as the step allows, since a store that answers slowly is not sold
+ * out; "unavailable" needs every combination to have answered out of stock.
+ */
+async function chooseByLookup(
+  page: Page,
+  attributes: readonly WooAttribute[],
+  deadline: number,
+): Promise<VariantSelection> {
   const { combinations, total } = optionCombinations(
     attributes.map((attribute) => attribute.options.map((o) => o.value)),
   );
@@ -715,19 +862,17 @@ async function selectWooVariation(page: Page, deadline: number): Promise<Variant
     };
   }
   let tried = 0;
+  let outOfStock = 0;
+  let notSelected = 0;
   for (const values of combinations) {
     if (Date.now() >= deadline) break;
     tried += 1;
-    try {
-      await applyWooAttributes(page, attributes, values, deadline);
-    } catch {
+    const { wait, failed } = await chooseWooValues(page, attributes, values, deadline);
+    if (failed) {
+      notSelected += 1;
       continue;
     }
-    const outcome = await waitForWooState(
-      page,
-      null,
-      Math.min(deadline, Date.now() + COMBINATION_WAIT_MS),
-    );
+    const outcome = await waitForWooState(page, null, deadline, wait);
     if (outcome.state === 'available') {
       return {
         outcome: 'selected',
@@ -739,21 +884,33 @@ async function selectWooVariation(page: Page, deadline: number): Promise<Variant
         },
       };
     }
+    if (outcome.state === 'unavailable') outOfStock += 1;
   }
-  const details: Details = { variantSource: source, combinationsTried: tried };
-  if (tried < combinations.length) {
+  const details: Details = {
+    variantSource: source,
+    combinationsTried: tried,
+    combinationsOutOfStock: outOfStock,
+  };
+  if (outOfStock === combinations.length) {
+    return {
+      outcome: 'unavailable',
+      message:
+        total > combinations.length
+          ? `No available variant among the first ${combinations.length} of ${total} option combinations`
+          : `No available variant: none of the ${total} option combinations is in stock`,
+      details,
+    };
+  }
+  if (tried === combinations.length && outOfStock + notSelected === tried) {
     return {
       outcome: 'unresolved',
-      message: `No variation resolved within the step timeout (${tried} of ${total} option combinations tried)`,
+      message: `No variant in stock among the option combinations the form accepted (${notSelected} of ${combinations.length} could not be selected)`,
       details,
     };
   }
   return {
-    outcome: 'unavailable',
-    message:
-      total > combinations.length
-        ? `No available variant among the first ${combinations.length} of ${total} option combinations`
-        : `No available variant: none of the ${total} option combinations is in stock`,
+    outcome: 'unresolved',
+    message: `The variation lookup did not answer within the step timeout (${outOfStock} of ${total} option combinations answered out of stock)`,
     details,
   };
 }

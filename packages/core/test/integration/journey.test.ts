@@ -286,6 +286,128 @@ describe('variant selection', () => {
     expect(target.cartAdds()).toEqual([{ variantId: '102', quantity: 1 }]);
   });
 
+  it("WooCommerce: waits for WooCommerce's show_variation when the preselected default is out of stock", async () => {
+    // WooCommerce 9.8 and later set variation_id at once and update the button 300 ms later,
+    // so the button still says "unavailable" (Small / Blue) right after Grey is chosen.
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      wooDefaultAttributes: { attribute_pa_size: 'small', attribute_pa_color: 'blue' },
+    });
+    const result = await run(target);
+    expect(result.status).toBe('passed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      expect(stepOf(result, device, 'find_add_to_cart')?.details).toMatchObject({
+        variant: 'Size: Small, Color: Grey',
+        variantId: '102',
+        strategy: 'woo-single-add-to-cart-button',
+      });
+    }
+    expect(target.cartAdds()).toEqual([
+      { variantId: '102', quantity: 1 },
+      { variantId: '102', quantity: 1 },
+    ]);
+  });
+
+  it('WooCommerce: over AJAX, a combination tried after an out of stock one is judged on its own answer', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+      wooInStock: [102],
+    });
+    const result = await run(target);
+    expect(result.status).toBe('passed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      expect(stepOf(result, device, 'find_add_to_cart')?.details).toMatchObject({
+        variant: 'Size: Small, Color: Grey',
+        variantId: '102',
+        variantSource: 'wc-ajax=get_variation',
+      });
+    }
+    expect(target.cartAdds()).toEqual([
+      { variantId: '102', quantity: 1 },
+      { variantId: '102', quantity: 1 },
+    ]);
+  });
+
+  it('WooCommerce: over AJAX, starts from a preselected default that is out of stock', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+      wooInStock: [102],
+      wooDefaultAttributes: { attribute_pa_size: 'small', attribute_pa_color: 'blue' },
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: 'Size: Small, Color: Grey',
+      variantId: '102',
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '102', quantity: 1 }]);
+  });
+
+  it.each([[false], [true]])(
+    "WooCommerce: a theme's own variation script without WooCommerce's events (AJAX %s)",
+    async (ajaxVariations) => {
+      const target = await store({
+        platform: 'woocommerce',
+        variant: 'variants',
+        variationScript: 'theme',
+        ajaxVariations,
+        wooInStock: [102],
+        wooDefaultAttributes: { attribute_pa_size: 'small', attribute_pa_color: 'blue' },
+      });
+      const result = await run(target, {
+        devices: 'desktop',
+        timeouts: { stepMs: 10_000, navigationMs: 10_000 },
+      });
+      expect(result.status).toBe('passed');
+      expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+        variant: 'Size: Small, Color: Grey',
+        variantId: '102',
+      });
+      expect(target.cartAdds()).toEqual([{ variantId: '102', quantity: 1 }]);
+    },
+  );
+
+  it('WooCommerce: waits for a slow variation lookup instead of calling the product sold out', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+      variationLookupDelayMs: 2_500,
+    });
+    const result = await run(target, {
+      devices: 'desktop',
+      timeouts: { stepMs: 15_000, navigationMs: 10_000 },
+    });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: 'Size: Small, Color: Grey',
+      variantId: '102',
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '102', quantity: 1 }]);
+  });
+
+  it('WooCommerce: a lookup that does not answer within the step is not reported as sold out', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+      variationLookupDelayMs: 6_000,
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.journeys[0]?.failedStep).toBe('find_add_to_cart');
+    const find = stepOf(result, 'desktop', 'find_add_to_cart');
+    expect(find?.message).toBe(
+      'The variation lookup did not answer within the step timeout (0 of 4 option combinations answered out of stock)',
+    );
+    expect(find?.details).toMatchObject({ combinationsTried: 1, combinationsOutOfStock: 0 });
+    expect(target.cartAdds()).toEqual([]);
+  });
+
   it('WooCommerce: fails with "no available variant" when every variation is out of stock', async () => {
     const target = await store({ platform: 'woocommerce', variant: 'variants-sold-out' });
     const result = await run(target);

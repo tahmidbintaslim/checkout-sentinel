@@ -1,17 +1,28 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import express, { type Request, type Response } from 'express';
 import {
+  JQUERY_PATH,
   matchWooVariation,
+  shopifyCustomProduct,
   shopifyOptionsMarkup,
   shopifyOptionsProduct,
   shopifyProductJs,
+  shopifySingleVariantMarkup,
   shopifySingleVariantProduct,
   wooVariations,
   wooVariationsForm,
+  type ShopifyFixtureVariants,
   type ShopifyPickerStyle,
+  type ShopifyQuantityPicker,
+  type WooVariationScript,
 } from './variants.js';
+
+const jqueryFile = createRequire(import.meta.url).resolve('jquery/dist/jquery.min.js');
+let jquerySource: string | undefined;
 
 /**
  * Minimal stand-ins for a Shopify Online Store 2.0 theme and a WooCommerce single product
@@ -63,16 +74,44 @@ export interface FixtureStoreOptions {
   loopbackSubresource?: boolean;
   /**
    * Shopify: whether `/products/<handle>.js` answers (default true). Without it the product
-   * JSON is only in the page.
+   * JSON is only in the page. `redirect-to-loopback`: requested by any host name other than
+   * 127.0.0.1, it redirects to the same path on http://127.0.0.1. SSRF guard tests.
    */
-  productEndpoint?: boolean;
-  /** Shopify `variants` variants: the theme's variant picker (default `theme`). */
+  productEndpoint?: boolean | 'redirect-to-loopback';
+  /**
+   * Shopify: the product's options and variants, in place of the product `variant` picks. A
+   * product with one variant gets the page without a picker.
+   */
+  shopifyVariants?: ShopifyFixtureVariants;
+  /** Shopify, products with options: the theme's variant picker (default `theme`). */
   variantPickers?: ShopifyPickerStyle;
+  /** Shopify: the product form's quantity field (default `number`). */
+  quantityPicker?: ShopifyQuantityPicker;
   /**
    * WooCommerce `variants` variants: the form carries no variation data and the page asks the
    * store for each combination, as WooCommerce does for products with many variations.
    */
   ajaxVariations?: boolean;
+  /** WooCommerce `variants` variants: the script that drives the form (default `woocommerce`). */
+  variationScript?: WooVariationScript;
+  /** WooCommerce `variants` variants: attribute values the form preselects. */
+  wooDefaultAttributes?: Readonly<Record<string, string>>;
+  /**
+   * WooCommerce `variants` variants: the ids of the variations in stock (101 Small / Blue,
+   * 102 Small / Grey, 103 Medium in any colour) in place of the default 102 and 103.
+   */
+  wooInStock?: readonly number[];
+  /** WooCommerce `variants` variants: radio buttons in place of the attribute selects. */
+  wooAttributeInputs?: 'select' | 'radio';
+  /** WooCommerce `variants` variants: a plugin keeps the button disabled after each variation shows. */
+  lockedAddToCart?: boolean;
+  /** WooCommerce: delay before `?wc-ajax=get_variation` answers. */
+  variationLookupDelayMs?: number;
+  /**
+   * false: leave out the headers, meta tags, globals and body classes that platform detection
+   * reads, so the store is detected as unknown. Default true.
+   */
+  platformSignals?: boolean;
 }
 
 /** One successful add to cart, as the store received it. */
@@ -124,6 +163,9 @@ ${body}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const PRODUCT_IMAGE_PATH = '/wp-content/uploads/demo-hoodie.svg';
+const PRODUCT_IMAGE_DELAY_MS = 700;
+
 export const PRODUCT_PATHS: Readonly<Record<FixturePlatform, string>> = {
   shopify: '/products/demo-tee',
   woocommerce: '/product/demo-hoodie/',
@@ -139,6 +181,7 @@ export function createFixtureApp(options: FixtureStoreOptions): {
 } {
   const variant = options.variant ?? 'ok';
   const hasOptions = variant === 'variants' || variant === 'variants-sold-out';
+  const signals = options.platformSignals !== false;
   const carts = new Map<string, number>();
   const adds: FixtureCartAdd[] = [];
   let orders = 0;
@@ -202,22 +245,36 @@ export function createFixtureApp(options: FixtureStoreOptions): {
     variant === 'js-error' ? '<script>window.reviewsWidget.init({ stars: 5 });</script>' : '';
 
   if (options.platform === 'shopify') {
-    app.use((_req, res, next) => {
-      res.setHeader('x-shopid', '0000000');
-      res.setHeader('powered-by', 'Shopify');
-      next();
-    });
+    if (signals) {
+      app.use((_req, res, next) => {
+        res.setHeader('x-shopid', '0000000');
+        res.setHeader('powered-by', 'Shopify');
+        next();
+      });
+    }
 
-    const product = hasOptions
-      ? shopifyOptionsProduct(variant === 'variants-sold-out')
-      : shopifySingleVariantProduct();
-    const shopifyHead = `<meta name="shopify-checkout-api-token" content="fixture-token">
-<script>window.Shopify = { shop: 'fixture-store.myshopify.com', theme: { name: 'Dawn' } };</script>
+    const product = options.shopifyVariants
+      ? shopifyCustomProduct(options.shopifyVariants)
+      : hasOptions
+        ? shopifyOptionsProduct(variant === 'variants-sold-out')
+        : shopifySingleVariantProduct();
+    // Shopify themes draw no picker for a product with only its "Default Title" variant.
+    const picker = product.variants.length > 1;
+    const shopifyHead = `${
+      signals
+        ? `<meta name="shopify-checkout-api-token" content="fixture-token">
+<script>window.Shopify = { shop: 'fixture-store.myshopify.com', theme: { name: 'Dawn' } };</script>`
+        : ''
+    }
 ${hideOnMobile}`;
 
-    app.get('/products/demo-tee.js', (_req, res) => {
+    app.get('/products/demo-tee.js', (req, res) => {
       if (options.productEndpoint === false) {
         res.status(404).json({ status: 404, message: 'Not Found' });
+        return;
+      }
+      if (options.productEndpoint === 'redirect-to-loopback' && req.hostname !== '127.0.0.1') {
+        res.redirect(302, `http://127.0.0.1:${req.socket.localPort}${req.originalUrl}`);
         return;
       }
       res.json(shopifyProductJs(product));
@@ -225,8 +282,14 @@ ${hideOnMobile}`;
 
     app.get('/products/demo-tee', (req, res) => {
       session(req, res);
-      if (hasOptions) {
-        const markup = shopifyOptionsMarkup(product, options.variantPickers ?? 'theme');
+      const quantity = options.quantityPicker ?? 'number';
+      if (picker) {
+        const requested = Number(req.query['variant']);
+        const markup = shopifyOptionsMarkup(product, {
+          pickers: options.variantPickers ?? 'theme',
+          quantity,
+          ...(Number.isInteger(requested) ? { selectedId: requested } : {}),
+        });
         res
           .type('html')
           .send(
@@ -250,22 +313,15 @@ document.getElementById('ajax-add').addEventListener('click', async () => {
 });
 </script>`
           : '';
-      res.type('html').send(
-        page(
-          'Demo Tee - Fixture Shopify Store',
-          shopifyHead,
-          `<main>
-<h1>Demo Tee</h1>
-<p>$25.00</p>
-<form method="post" action="/cart/add" id="product-form" class="form">
-  <input type="hidden" name="id" value="4242">
-  <input type="number" name="quantity" value="1" min="1">
-  ${button}
-</form>
-</main>
-${ajaxScript}`,
-        ),
-      );
+      res
+        .type('html')
+        .send(
+          page(
+            'Demo Tee - Fixture Shopify Store',
+            shopifyHead,
+            `${shopifySingleVariantMarkup(product, quantity, button)}\n${ajaxScript}`,
+          ),
+        );
     });
 
     /** A request without an id adds the product's first variant, as the theme's form would. */
@@ -385,28 +441,46 @@ ${ajaxScript}`,
 
   if (options.platform === 'woocommerce') {
     const productPath = '/product/demo-hoodie/';
-    const wooHead = `<meta name="generator" content="WooCommerce 9.4.2">
-<script>var wc_add_to_cart_params = { ajax_url: '/wp-admin/admin-ajax.php', wc_ajax_url: '/?wc-ajax=%%endpoint%%' };</script>
+    const wooHead = `${
+      signals
+        ? `<meta name="generator" content="WooCommerce 10.3.0">
+<script>var wc_add_to_cart_params = { ajax_url: '/wp-admin/admin-ajax.php', wc_ajax_url: '/?wc-ajax=%%endpoint%%' };</script>`
+        : ''
+    }
 ${hideOnMobile}
 ${brokenScript}`;
-    const variations = hasOptions ? wooVariations(variant === 'variants-sold-out') : null;
+    const variations = hasOptions
+      ? wooVariations(variant === 'variants-sold-out', options.wooInStock)
+      : null;
     const addForm = variations
-      ? wooVariationsForm(productPath, variations, options.ajaxVariations === true)
+      ? wooVariationsForm(productPath, variations, {
+          ajax: options.ajaxVariations === true,
+          script: options.variationScript ?? 'woocommerce',
+          defaults: options.wooDefaultAttributes ?? {},
+          attributeInputs: options.wooAttributeInputs ?? 'select',
+          locked: options.lockedAddToCart === true,
+        })
       : `<form class="cart" action="${productPath}" method="post" enctype="application/x-www-form-urlencoded">
   <div class="quantity"><input type="number" name="quantity" value="1" min="1"></div>
   <button type="submit" name="add-to-cart" value="42" class="single_add_to_cart_button button alt">Add to cart</button>
 </form>`;
+    // A product with options shows a gallery image that takes a while, as real ones do, so the
+    // load event comes after WooCommerce has resolved the preselected attributes.
+    const gallery = variations
+      ? `<img class="wp-post-image" src="${PRODUCT_IMAGE_PATH}" width="300" height="300" alt="Demo Hoodie">`
+      : '';
     const productPage = (notice: string) =>
       page(
         'Demo Hoodie - Fixture WooCommerce Store',
         wooHead,
         `<main>
 ${notice}
+${gallery}
 <h1 class="product_title entry-title">Demo Hoodie</h1>
 <p class="price">$45.00</p>
 ${addForm}
 </main>`,
-        `product-template-default single single-product woocommerce woocommerce-page${variations ? ' product-type-variable' : ''}`,
+        `product-template-default single single-product${signals ? ' woocommerce woocommerce-page' : ''}${variations ? ' product-type-variable' : ''}`,
       );
     const wooError = (text: string) =>
       `<ul class="woocommerce-error" role="alert"><li>${text}</li></ul>`;
@@ -512,8 +586,19 @@ ${addForm}
       orders += 1;
       res.status(200).send('order placed');
     });
-    app.post('/', (req, res) => {
+    app.get(PRODUCT_IMAGE_PATH, async (_req, res) => {
+      await sleep(PRODUCT_IMAGE_DELAY_MS);
+      res
+        .type('image/svg+xml')
+        .send('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"/>');
+    });
+    app.get(JQUERY_PATH, (_req, res) => {
+      jquerySource ??= readFileSync(jqueryFile, 'utf8');
+      res.type('text/javascript').send(jquerySource);
+    });
+    app.post('/', async (req, res) => {
       if (req.query['wc-ajax'] === 'get_variation') {
+        if (options.variationLookupDelayMs) await sleep(options.variationLookupDelayMs);
         res.json((variations && matchWooVariation(variations, req.body ?? {})) ?? false);
         return;
       }

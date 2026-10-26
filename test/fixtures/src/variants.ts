@@ -2,7 +2,8 @@
  * Product data and theme markup for fixture products with options. The Shopify product
  * copies the parts of Dawn's variant picker and the AJAX product endpoint that
  * checkout-sentinel reads; the WooCommerce product copies the variations form of the default
- * single-product template and the behaviour of wc-add-to-cart-variation.js.
+ * single-product template and the behaviour of add-to-cart-variation.js as of WooCommerce 9.8
+ * (written here, not copied: WooCommerce is GPL and this repository is MIT).
  */
 
 export interface ShopifyFixtureVariant {
@@ -66,6 +67,36 @@ export function shopifyOptionsProduct(allSoldOut: boolean): ShopifyFixtureProduc
   };
 }
 
+/** Options and variants a test chooses, for a product with handle `demo-tee`. */
+export interface ShopifyFixtureVariants {
+  options: string[];
+  variants: ReadonlyArray<{ id: number; values: string[]; available: boolean }>;
+}
+
+export function shopifyCustomProduct(spec: ShopifyFixtureVariants): ShopifyFixtureProduct {
+  return {
+    id: 7002,
+    title: 'Demo Tee',
+    handle: 'demo-tee',
+    options: spec.options,
+    variants: spec.variants.map((v) => shopifyVariant(v.id, v.values, v.available)),
+  };
+}
+
+/**
+ * The product a header mega menu features, with a quick-add form and product JSON that come
+ * before the main product's in the page. The menu is closed, so its button is not visible.
+ */
+export function shopifyFeaturedProduct(): ShopifyFixtureProduct {
+  return {
+    id: 7100,
+    title: 'Demo Cap',
+    handle: 'demo-cap',
+    options: ['Color'],
+    variants: [shopifyVariant(5101, ['Black'], true), shopifyVariant(5102, ['White'], true)],
+  };
+}
+
 /** The `/products/<handle>.js` body: option objects with values, as the AJAX API returns them. */
 export function shopifyProductJs(product: ShopifyFixtureProduct): Record<string, unknown> {
   return {
@@ -89,21 +120,67 @@ function jsonScript(value: unknown): string {
 const VISUALLY_HIDDEN =
   '.visually-hidden { position: absolute !important; overflow: hidden; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; clip: rect(0 0 0 0); }';
 
-export type ShopifyPickerStyle = 'theme' | 'custom';
+export type ShopifyPickerStyle = 'theme' | 'custom' | 'unsynced';
+
+export type ShopifyQuantityPicker = 'number' | 'radios';
+
+export interface ShopifyMarkupOptions {
+  pickers: ShopifyPickerStyle;
+  quantity: ShopifyQuantityPicker;
+  /** The variant in the URL's `?variant=`, which the theme renders as selected. */
+  selectedId?: number;
+}
+
+function quantityField(quantity: ShopifyQuantityPicker): string {
+  if (quantity === 'number') return '<input type="number" name="quantity" value="1" min="1">';
+  // Quantity-break apps draw the quantity as radios that share numeric values with options.
+  return `<fieldset class="quantity-breaks">
+    <legend>Bundle and save</legend>
+    <label><input type="radio" name="quantity" value="1" checked> Buy 1</label>
+    <label><input type="radio" name="quantity" value="2"> Buy 2, save 10%</label>
+    <label><input type="radio" name="quantity" value="3"> Buy 3, save 15%</label>
+  </fieldset>`;
+}
 
 /**
- * The product form and its variant picker. `theme` follows Dawn: the size is a select with no
- * default and the colour is a set of visually hidden radios behind their labels, both outside
- * the form; theme JS keeps the form's hidden `id` in step and disables the button until the
- * chosen variant is available. `custom` draws the options as plain elements a theme script
- * listens to, and leaves the button enabled, so the server is the one that refuses a sold out
- * variant.
+ * A closed mega menu in the header featuring another product: a quick-add form and its product
+ * JSON, both before the main product's, as Dawn's featured product cards render them.
+ */
+function megaMenu(): string {
+  const featured = shopifyFeaturedProduct();
+  return `<header>
+<details class="mega-menu">
+  <summary>Shop</summary>
+  <div class="mega-menu__content">
+    <a href="/products/${featured.handle}">${featured.title}</a>
+    <form method="post" action="/cart/add" id="quick-add-${featured.handle}" class="form">
+      <input type="hidden" name="id" value="${featured.variants[0]?.id ?? ''}">
+      <input type="hidden" name="quantity" value="1">
+      <button type="submit" name="add">Add to cart</button>
+    </form>
+    <script type="application/json" id="ProductJson-${featured.handle}">${jsonScript(featured)}</script>
+  </div>
+</details>
+</header>`;
+}
+
+/**
+ * The product form and its variant picker. `theme` follows Dawn: the first option is a select
+ * with no default and the others are sets of visually hidden radios behind their labels, all
+ * outside the form; theme JS keeps the form's hidden `id` in step and disables the button until
+ * the chosen variant is available. A `?variant=` in the URL renders that variant as selected.
+ * `unsynced` is the same markup with no theme script, as when the script failed to load: the
+ * inputs change, the form's `id` does not, and the button stays enabled. `custom` draws the
+ * options as plain elements a theme script listens to, and leaves the button enabled. With
+ * `unsynced` and `custom` the server is the one that refuses a sold out variant.
  */
 export function shopifyOptionsMarkup(
   product: ShopifyFixtureProduct,
-  pickers: ShopifyPickerStyle,
+  options: ShopifyMarkupOptions,
 ): { head: string; body: string } {
-  const first = product.variants[0];
+  const { pickers } = options;
+  const selected = product.variants.find((variant) => variant.id === options.selectedId);
+  const formVariant = selected ?? product.variants[0];
   const values = (index: number) => [
     ...new Set(product.variants.map((variant) => variant.options[index] ?? '')),
   ];
@@ -111,26 +188,36 @@ export function shopifyOptionsMarkup(
 .swatch { display: inline-block; padding: 8px 16px; border: 1px solid #333; border-radius: 20px; cursor: pointer; }
 input[type="radio"]:checked + label.swatch, .swatch.is-selected { background: #333; color: #fff; }</style>`;
 
+  const firstName = product.options[0] ?? 'Option';
   const themePicker = `<variant-selects class="product__variants">
   <div class="product-form__input product-form__input--dropdown">
-    <label class="form__label" for="Option-main-0">Size</label>
-    <select id="Option-main-0" name="options[Size]" form="product-form">
-      <option value="" disabled selected>Choose a size</option>
+    <label class="form__label" for="Option-main-0">${firstName}</label>
+    <select id="Option-main-0" name="options[${escapeAttribute(firstName)}]" form="product-form">
+      <option value="" disabled${selected ? '' : ' selected'}>Choose a ${firstName.toLowerCase()}</option>
       ${values(0)
-        .map((v) => `<option value="${escapeAttribute(v)}">${v}</option>`)
+        .map(
+          (v) =>
+            `<option value="${escapeAttribute(v)}"${selected?.options[0] === v ? ' selected' : ''}>${v}</option>`,
+        )
         .join('\n      ')}
     </select>
   </div>
-  <fieldset class="product-form__input product-form__input--pill">
-    <legend class="form__label">Color</legend>
-    ${values(1)
-      .map(
-        (v, i) =>
-          `<input type="radio" id="main-1-${i}" name="Color-1" value="${escapeAttribute(v)}" form="product-form" class="visually-hidden"${i === 0 ? ' checked' : ''}>
-    <label class="swatch" for="main-1-${i}">${v}</label>`,
-      )
+  ${product.options
+    .slice(1)
+    .map((name, offset) => {
+      const index = offset + 1;
+      return `<fieldset class="product-form__input product-form__input--pill">
+    <legend class="form__label">${name}</legend>
+    ${values(index)
+      .map((v, i) => {
+        const checked = selected ? selected.options[index] === v : i === 0;
+        return `<input type="radio" id="main-${index}-${i}" name="${escapeAttribute(name)}-${index}" value="${escapeAttribute(v)}" form="product-form" class="visually-hidden"${checked ? ' checked' : ''}>
+    <label class="swatch" for="main-${index}-${i}">${v}</label>`;
+      })
       .join('\n    ')}
-  </fieldset>
+  </fieldset>`;
+    })
+    .join('\n  ')}
 </variant-selects>`;
 
   const customPicker = `<div class="custom-options">
@@ -139,20 +226,23 @@ input[type="radio"]:checked + label.swatch, .swatch.is-selected { background: #3
       (name, index) => `<div class="custom-option" data-option-index="${index}">
     <span class="custom-option__name">${name}</span>
     ${values(index)
-      .map(
-        (v, i) =>
-          `<span class="swatch${i === 0 ? ' is-selected' : ''}" data-value="${escapeAttribute(v)}" tabindex="0">${v}</span>`,
-      )
+      .map((v, i) => {
+        const chosen = selected ? selected.options[index] === v : i === 0;
+        return `<span class="swatch${chosen ? ' is-selected' : ''}" data-value="${escapeAttribute(v)}" tabindex="0">${v}</span>`;
+      })
       .join('\n    ')}
   </div>`,
     )
     .join('\n  ')}
 </div>`;
 
-  const button =
-    pickers === 'theme'
-      ? '<button type="submit" name="add" class="product-form__submit" disabled>Choose a size</button>'
-      : '<button type="submit" name="add" class="product-form__submit">Add to cart</button>';
+  let button = '<button type="submit" name="add" class="product-form__submit">Add to cart</button>';
+  if (pickers === 'theme' && !selected) {
+    button = `<button type="submit" name="add" class="product-form__submit" disabled>Choose a ${firstName.toLowerCase()}</button>`;
+  } else if (pickers === 'theme' && !selected?.available) {
+    button =
+      '<button type="submit" name="add" class="product-form__submit" disabled>Sold out</button>';
+  }
 
   const themeScript = `<script>
 (() => {
@@ -160,16 +250,18 @@ input[type="radio"]:checked + label.swatch, .swatch.is-selected { background: #3
   const form = document.getElementById('product-form');
   const idInput = form.querySelector('input[name="id"]');
   const button = form.querySelector('[name="add"]');
-  const size = document.getElementById('Option-main-0');
-  const colors = [...document.querySelectorAll('input[name="Color-1"]')];
+  const first = document.getElementById('Option-main-0');
+  const groups = product.options
+    .slice(1)
+    .map((name, i) => [...document.querySelectorAll('input[name="' + CSS.escape(name + '-' + (i + 1)) + '"]')]);
   const update = () => {
-    const color = colors.find((radio) => radio.checked);
-    if (!size.value || !color) {
+    const chosen = [first.value, ...groups.map((radios) => radios.find((radio) => radio.checked)?.value)];
+    if (chosen.some((value) => !value)) {
       button.disabled = true;
-      button.textContent = 'Choose a size';
+      button.textContent = 'Choose a ' + product.options[0].toLowerCase();
       return;
     }
-    const variant = product.variants.find((v) => v.options[0] === size.value && v.options[1] === color.value);
+    const variant = product.variants.find((v) => v.options.every((value, i) => value === chosen[i]));
     if (!variant) {
       button.disabled = true;
       button.textContent = 'Unavailable';
@@ -180,8 +272,8 @@ input[type="radio"]:checked + label.swatch, .swatch.is-selected { background: #3
     button.disabled = !variant.available;
     button.textContent = variant.available ? 'Add to cart' : 'Sold out';
   };
-  size.addEventListener('change', update);
-  for (const radio of colors) radio.addEventListener('change', update);
+  first.addEventListener('change', update);
+  for (const radio of groups.flat()) radio.addEventListener('change', update);
 })();
 </script>`;
 
@@ -205,19 +297,49 @@ input[type="radio"]:checked + label.swatch, .swatch.is-selected { background: #3
 })();
 </script>`;
 
-  const body = `<main>
+  const scripts: Record<ShopifyPickerStyle, string> = {
+    theme: themeScript,
+    unsynced: '',
+    custom: customScript,
+  };
+  const body = `${megaMenu()}
+<main>
 <h1>Demo Tee</h1>
 <p>$25.00</p>
-${pickers === 'theme' ? themePicker : customPicker}
+${pickers === 'custom' ? customPicker : themePicker}
 <form method="post" action="/cart/add" id="product-form" class="form">
-  <input type="hidden" name="id" value="${first?.id ?? ''}">
-  <input type="number" name="quantity" value="1" min="1">
+  <input type="hidden" name="id" value="${formVariant?.id ?? ''}">
+  ${quantityField(options.quantity)}
   ${button}
 </form>
 </main>
 <script type="application/json" id="ProductJson-demo-tee">${jsonScript(product)}</script>
-${pickers === 'theme' ? themeScript : customScript}`;
+${scripts[pickers]}`;
   return { head, body };
+}
+
+/**
+ * The page of a product with a single variant ("Default Title"): no picker, and the button is
+ * disabled with "Sold out" when that variant is.
+ */
+export function shopifySingleVariantMarkup(
+  product: ShopifyFixtureProduct,
+  quantity: ShopifyQuantityPicker,
+  button: string,
+): string {
+  const variant = product.variants[0];
+  const control = variant?.available
+    ? button
+    : '<button type="submit" name="add" class="product-form__submit" disabled>Sold out</button>';
+  return `<main>
+<h1>Demo Tee</h1>
+<p>$25.00</p>
+<form method="post" action="/cart/add" id="product-form" class="form">
+  <input type="hidden" name="id" value="${variant?.id ?? ''}">
+  ${quantityField(quantity)}
+  ${control}
+</form>
+</main>`;
 }
 
 export interface WooFixtureVariation {
@@ -276,13 +398,18 @@ function wooVariation(
 
 /**
  * Small / Blue is out of stock, Small / Grey is the first variation in stock, and Medium comes
- * in any colour (an empty attribute value means "any" to WooCommerce).
+ * in any colour (an empty attribute value means "any" to WooCommerce). `inStock` lists the
+ * variation ids in stock instead.
  */
-export function wooVariations(allSoldOut: boolean): WooFixtureVariation[] {
+export function wooVariations(
+  allSoldOut: boolean,
+  inStock?: readonly number[],
+): WooFixtureVariation[] {
+  const stocked = (id: number) => (inStock ? inStock.includes(id) : !allSoldOut && id !== 101);
   return [
-    wooVariation(101, 'small', 'blue', false),
-    wooVariation(102, 'small', 'grey', !allSoldOut),
-    wooVariation(103, 'medium', '', !allSoldOut),
+    wooVariation(101, 'small', 'blue', stocked(101)),
+    wooVariation(102, 'small', 'grey', stocked(102)),
+    wooVariation(103, 'medium', '', stocked(103)),
   ];
 }
 
@@ -298,25 +425,62 @@ export function matchWooVariation(
   );
 }
 
+/** Where the fixture serves jQuery, as WordPress does. */
+export const JQUERY_PATH = '/wp-includes/js/jquery/jquery.min.js';
+
+/**
+ * `woocommerce`: a jQuery stand-in for add-to-cart-variation.js that announces each variation
+ * with the `show_variation` and `hide_variation` events and registers
+ * `jQuery.fn.wc_variation_form`, as WooCommerce does. `theme`: a theme's own script without
+ * jQuery and without those events.
+ */
+export type WooVariationScript = 'woocommerce' | 'theme';
+
+export interface WooFormOptions {
+  /** `data-product_variations` is "false" and the script asks the store for each combination. */
+  ajax: boolean;
+  script: WooVariationScript;
+  /** Attribute values the form preselects, as a product's default attributes do. */
+  defaults: Readonly<Record<string, string>>;
+  /** Draw the attributes as radio buttons (always with the `theme` script). */
+  attributeInputs: 'select' | 'radio';
+  /** A plugin keeps the add-to-cart button disabled after each variation is shown. */
+  locked: boolean;
+}
+
 /**
  * The variations form. With `ajax`, `data-product_variations` is "false" and the script asks
  * the store for each combination (`?wc-ajax=get_variation`), as WooCommerce does for products
  * with more variations than its AJAX threshold.
+ *
+ * Both scripts behave like WooCommerce 9.8 and later: a change clears `variation_id`, a match
+ * sets it at once, and the button is updated 300 ms later (WooCommerce waits so that screen
+ * readers pick up the change). Until then the button still shows the previous variation.
  */
 export function wooVariationsForm(
   productPath: string,
   variations: readonly WooFixtureVariation[],
-  ajax: boolean,
+  options: WooFormOptions,
 ): string {
-  const data = ajax ? 'false' : escapeAttribute(JSON.stringify(variations));
+  const script: WooVariationScript = options.attributeInputs === 'radio' ? 'theme' : options.script;
+  const data = options.ajax ? 'false' : escapeAttribute(JSON.stringify(variations));
   const rows = WOO_ATTRIBUTES.map((attribute) => {
     const id = attribute.name.replace(/^attribute_/, '');
+    const preset = options.defaults[attribute.name] ?? '';
+    if (options.attributeInputs === 'radio') {
+      return `<tr>
+      <th class="label">${attribute.label}</th>
+      <td class="value">
+        ${attribute.options.map((o) => `<label><input type="radio" name="${attribute.name}" value="${o.value}"${preset === o.value ? ' checked' : ''}> ${o.label}</label>`).join('\n        ')}
+      </td>
+    </tr>`;
+    }
     return `<tr>
       <th class="label"><label for="${id}">${attribute.label}</label></th>
       <td class="value">
         <select id="${id}" name="${attribute.name}" data-attribute_name="${attribute.name}" data-show_option_none="yes">
           <option value="">Choose an option</option>
-          ${attribute.options.map((o) => `<option value="${o.value}" class="attached enabled">${o.label}</option>`).join('\n          ')}
+          ${attribute.options.map((o) => `<option value="${o.value}" class="attached enabled"${preset === o.value ? ' selected="selected"' : ''}>${o.label}</option>`).join('\n          ')}
         </select>
       </td>
     </tr>`;
@@ -338,74 +502,133 @@ export function wooVariationsForm(
     </div>
   </div>
 </form>
+${script === 'woocommerce' ? `<script src="${JQUERY_PATH}"></script>` : ''}
 <script>
 (() => {
-  const form = document.querySelector('form.variations_form');
-  const raw = form.getAttribute('data-product_variations');
-  const variations = raw === 'false' ? null : JSON.parse(raw);
-  const selects = [...form.querySelectorAll('select[name^="attribute_"]')];
-  const idInput = form.querySelector('input.variation_id');
-  const button = form.querySelector('.single_add_to_cart_button');
-  const info = form.querySelector('.single_variation');
-  const wrap = form.querySelector('.variations_button');
-  const disable = (reason) => {
-    button.classList.add('disabled', reason);
-    button.classList.remove(reason === 'wc-variation-is-unavailable' ? 'wc-variation-selection-needed' : 'wc-variation-is-unavailable');
-    wrap.classList.add('woocommerce-variation-add-to-cart-disabled');
-  };
-  const found = (variation) => {
-    idInput.value = String(variation.variation_id);
-    info.innerHTML = variation.availability_html;
-    if (variation.is_in_stock && variation.is_purchasable && variation.variation_is_visible) {
-      button.classList.remove('disabled', 'wc-variation-selection-needed', 'wc-variation-is-unavailable');
-      wrap.classList.remove('woocommerce-variation-add-to-cart-disabled');
-    } else {
-      disable('wc-variation-is-unavailable');
+  const $ = ${script === 'woocommerce' ? 'window.jQuery' : 'undefined'};
+  const LOCKED = ${String(options.locked)};
+  const init = (form) => {
+    const raw = form.getAttribute('data-product_variations');
+    const variations = raw === 'false' ? null : JSON.parse(raw);
+    const names = [...new Set([...form.querySelectorAll('.variations [name^="attribute_"]')].map((field) => field.name))];
+    const idInput = form.querySelector('input.variation_id');
+    const button = form.querySelector('.single_add_to_cart_button');
+    const info = form.querySelector('.single_variation');
+    const wrap = form.querySelector('.variations_button');
+    let loading = true;
+    let pending = null;
+    const chosen = () =>
+      Object.fromEntries(
+        names.map((name) => {
+          const select = form.querySelector('select[name="' + name + '"]');
+          const value = select ? select.value : form.querySelector('input[name="' + name + '"]:checked')?.value;
+          return [name, value ?? ''];
+        }),
+      );
+    const onHide = () => {
+      button.classList.remove('wc-variation-is-unavailable');
+      button.classList.add('disabled', 'wc-variation-selection-needed');
+      wrap.classList.add('woocommerce-variation-add-to-cart-disabled');
+    };
+    const onShow = (variation, purchasable) => {
+      if (purchasable) {
+        button.classList.remove('disabled', 'wc-variation-selection-needed', 'wc-variation-is-unavailable');
+        wrap.classList.remove('woocommerce-variation-add-to-cart-disabled');
+      } else {
+        button.classList.remove('wc-variation-selection-needed');
+        button.classList.add('disabled', 'wc-variation-is-unavailable');
+        wrap.classList.add('woocommerce-variation-add-to-cart-disabled');
+      }
+    };
+    const handlers = { show_variation: [onShow], hide_variation: [onHide] };
+    if (LOCKED) handlers.show_variation.push(() => button.classList.add('disabled'));
+    if ($) {
+      for (const [type, list] of Object.entries(handlers)) {
+        for (const handler of list) $(form).on(type, (event, ...args) => handler(...args));
+      }
     }
+    // WooCommerce triggers these on .single_variation and they bubble to the form.
+    const emit = (type, args) => {
+      if ($) $(info).trigger(type, args);
+      else for (const handler of handlers[type]) handler(...args);
+    };
+    const found = (variation) => {
+      idInput.value = String(variation.variation_id);
+      const purchasable = variation.is_in_stock && variation.is_purchasable && variation.variation_is_visible;
+      setTimeout(() => {
+        info.innerHTML = variation.availability_html;
+        emit('show_variation', [variation, purchasable]);
+      }, 300);
+    };
+    const reset = () => {
+      info.innerHTML = '';
+      emit('hide_variation', []);
+    };
+    const noMatch = () => {
+      reset();
+      if (!loading) {
+        info.insertAdjacentHTML('afterend', '<div role="alert"><p class="wc-no-matching-variations woocommerce-info">Sorry, no products matched your selection. Please choose a different combination.</p></div>');
+      }
+    };
+    const check = () => {
+      const attributes = chosen();
+      if (Object.values(attributes).some((value) => !value)) {
+        reset();
+        return;
+      }
+      if (variations === null) {
+        // WooCommerce aborts the previous lookup, so only the latest combination resolves.
+        pending?.abort();
+        const controller = new AbortController();
+        pending = controller;
+        fetch('/?wc-ajax=get_variation', {
+          method: 'POST',
+          body: new URLSearchParams({ ...attributes, product_id: '42' }),
+          signal: controller.signal,
+        })
+          .then((response) => response.json())
+          .then((variation) => (variation ? found(variation) : noMatch()))
+          .catch(() => undefined);
+        return;
+      }
+      const variation = variations.find((v) =>
+        Object.entries(v.attributes).every(([name, value]) => value === '' || attributes[name] === value),
+      );
+      if (variation) found(variation);
+      else noMatch();
+    };
+    const onChange = () => {
+      idInput.value = '';
+      form.querySelector('.wc-no-matching-variations')?.parentElement.remove();
+      check();
+    };
+    if ($) $(form).on('change', '.variations select, .variations input', onChange);
+    else form.addEventListener('change', (event) => event.target.closest('.variations') && onChange());
+    button.addEventListener('click', (event) => {
+      if (!button.classList.contains('disabled')) return;
+      event.preventDefault();
+      window.alert(
+        button.classList.contains('wc-variation-is-unavailable')
+          ? 'Sorry, this product is unavailable. Please choose a different combination.'
+          : 'Please select some product options before adding this product to your cart.',
+      );
+    });
+    // Like WooCommerce, resolve the preselected attributes once the page has settled.
+    setTimeout(() => {
+      check();
+      loading = false;
+    }, 100);
   };
-  const noMatch = () => {
-    disable('wc-variation-is-unavailable');
-    info.insertAdjacentHTML('afterend', '<p class="wc-no-matching-variations woocommerce-info">Sorry, no products matched your selection. Please choose a different combination.</p>');
-  };
-  let pending = null;
-  const onChange = () => {
-    pending?.abort();
-    pending = null;
-    idInput.value = '';
-    info.innerHTML = '';
-    form.querySelector('.wc-no-matching-variations')?.remove();
-    if (selects.some((select) => !select.value)) {
-      disable('wc-variation-selection-needed');
-      return;
-    }
-    const chosen = Object.fromEntries(selects.map((select) => [select.name, select.value]));
-    if (variations === null) {
-      const body = new URLSearchParams({ ...chosen, product_id: '42' });
-      // WooCommerce aborts the previous lookup, so only the latest combination resolves.
-      const controller = new AbortController();
-      pending = controller;
-      fetch('/?wc-ajax=get_variation', { method: 'POST', body, signal: controller.signal })
-        .then((response) => response.json())
-        .then((variation) => (variation ? found(variation) : noMatch()))
-        .catch(() => undefined);
-      return;
-    }
-    const variation = variations.find((v) =>
-      Object.entries(v.attributes).every(([name, value]) => value === '' || chosen[name] === value),
-    );
-    if (variation) found(variation);
-    else noMatch();
-  };
-  for (const select of selects) select.addEventListener('change', onChange);
-  button.addEventListener('click', (event) => {
-    if (!button.classList.contains('disabled')) return;
-    event.preventDefault();
-    window.alert(
-      button.classList.contains('wc-variation-is-unavailable')
-        ? 'Sorry, this product is unavailable. Please choose a different combination.'
-        : 'Please select some product options before adding this product to your cart.',
-    );
-  });
+  if ($) {
+    $.fn.wc_variation_form = function () {
+      return this.each(function () {
+        init(this);
+      });
+    };
+    $(() => $('.variations_form').wc_variation_form());
+  } else {
+    init(document.querySelector('form.variations_form'));
+  }
 })();
 </script>`;
 }
