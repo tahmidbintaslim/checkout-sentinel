@@ -25,8 +25,13 @@ function stepNote(step: StepResult): string {
   if (step.name === 'open_product' && details.detectedPlatform !== undefined) {
     return `HTTP ${String(details.httpStatus)}, platform ${String(details.platformUsed)}`;
   }
-  if (step.name === 'find_add_to_cart' && details.matched !== undefined)
-    return String(details.matched);
+  if (step.name === 'find_add_to_cart' && details.matched !== undefined) {
+    const variant =
+      details.variant !== undefined
+        ? `, variant ${String(details.variant)} (${String(details.variantSelectedBy)})`
+        : '';
+    return `${String(details.matched)}${variant}`;
+  }
   if (step.name === 'verify_cart' && details.cartAfter !== undefined) {
     return `cart ${String(details.cartBefore ?? 0)} -> ${String(details.cartAfter)} (${String(details.source)})`;
   }
