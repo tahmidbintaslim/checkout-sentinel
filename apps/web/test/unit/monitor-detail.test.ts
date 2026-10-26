@@ -116,6 +116,19 @@ describe('monitor detail', () => {
     expect(status()).toContain('Run queued');
   });
 
+  it('writes the platform the way its maker does', async () => {
+    const api = fakeApi({
+      getMonitor: sampleMonitor({ platform: 'woocommerce' }),
+      listRuns: { items: [], nextCursor: null },
+      listAlerts: { items: [], nextCursor: null },
+      getRun: sampleRun(),
+    });
+    const { wrapper } = await mountAt(`/monitors/${ID}`, api);
+    const settings = wrapper.get('section[aria-labelledby="settings-title"]').text();
+    expect(settings).toContain('WooCommerce');
+    expect(settings).not.toContain('woocommerce');
+  });
+
   it('never reports a finished run next to an older latest result', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     const oldRun = 'a3d1b2c4-0000-4000-8000-000000000001';

@@ -23,6 +23,10 @@ describe('run detail', () => {
     const { wrapper } = await mountAt(RUN, api);
 
     expect(wrapper.find('nav[aria-label="Breadcrumb"]').text()).toContain('Demo tee');
+    const summary = wrapper.get('section[aria-labelledby="summary-title"]').text();
+    expect(summary).toContain('Shopify');
+    expect(summary).not.toContain('shopify');
+    expect(wrapper.get('.journey-head').text()).toContain('Platform Shopify (high confidence)');
     const steps = wrapper.findAll('li.step');
     expect(steps.map((s) => s.find('h3').text())).toEqual([
       'Open product',
