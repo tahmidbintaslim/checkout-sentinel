@@ -1,8 +1,16 @@
 import type { Platform } from './schema.js';
 
-export type AddToCartStrategy =
+export type AddToCartStrategy = (
   | { id: string; platform: Platform; kind: 'css'; selector: string; description: string }
-  | { id: string; platform: Platform; kind: 'role'; name: RegExp; description: string };
+  | { id: string; platform: Platform; kind: 'role'; name: RegExp; description: string }
+) & {
+  /**
+   * A class that disables the control without the disabled attribute. WooCommerce keeps a
+   * variable product's button enabled for the browser but marks it `disabled`, and its own
+   * script refuses the click until a variation in stock is chosen.
+   */
+  disabledClass?: string;
+};
 
 /**
  * Ordered from most to least specific. Platform strategies match the markup the platform's
@@ -35,6 +43,7 @@ export const WOOCOMMERCE_STRATEGIES: readonly AddToCartStrategy[] = [
     kind: 'css',
     selector: 'button.single_add_to_cart_button',
     description: 'button.single_add_to_cart_button',
+    disabledClass: 'disabled',
   },
   {
     id: 'woo-add-to-cart-link',

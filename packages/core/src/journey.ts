@@ -32,6 +32,7 @@ import {
   type AddToCartStrategy,
 } from './selectors.js';
 import { buildUserAgent } from './user-agent.js';
+import { selectVariant } from './variants.js';
 import { TOOL_NAME, VERSION } from './version.js';
 
 export interface RunOptions {
@@ -100,6 +101,12 @@ function fileSafe(value: string): string {
   return value.replace(/[^a-z0-9_-]+/gi, '-');
 }
 
+async function hasClass(locator: Locator, className: string): Promise<boolean> {
+  return locator
+    .evaluate((element, name) => element.classList.contains(name), className)
+    .catch(() => false);
+}
+
 async function findAddToCart(
   page: Page,
   platform: Platform,
@@ -120,7 +127,11 @@ async function findAddToCart(
       const count = await locator.count();
       for (let i = 0; i < count; i += 1) {
         const candidate = locator.nth(i);
-        if ((await candidate.isVisible()) && (await candidate.isEnabled())) {
+        if (
+          (await candidate.isVisible()) &&
+          (await candidate.isEnabled()) &&
+          !(strategy.disabledClass && (await hasClass(candidate, strategy.disabledClass)))
+        ) {
           return { locator: candidate, strategy, hiddenMatches: hiddenCount };
         }
         hiddenCount += 1;
@@ -212,10 +223,27 @@ function buildSteps(
     },
 
     async find_add_to_cart(state) {
-      const found = await findAddToCart(state.page, state.platform, timeouts.stepMs);
+      // A sold out default variant, or an option with no default, keeps the button disabled
+      // until a shopper picks an available variant.
+      const selection = await selectVariant(state.page, state.context.request, state.platform, {
+        timeoutMs: timeouts.stepMs,
+      });
+      if (selection.outcome === 'unavailable' || selection.outcome === 'unresolved') {
+        throw new StepFailure(selection.message, selection.details);
+      }
+      const variant = selection.outcome === 'selected' ? selection.details : {};
+      let found: Awaited<ReturnType<typeof findAddToCart>>;
+      try {
+        found = await findAddToCart(state.page, state.platform, timeouts.stepMs);
+      } catch (error) {
+        if (error instanceof StepFailure) {
+          throw new StepFailure(error.message, { ...variant, ...error.details });
+        }
+        throw error;
+      }
       state.addToCart = { locator: found.locator, strategy: found.strategy };
       return {
-        details: { strategy: found.strategy.id, matched: found.strategy.description },
+        details: { strategy: found.strategy.id, matched: found.strategy.description, ...variant },
       };
     },
 

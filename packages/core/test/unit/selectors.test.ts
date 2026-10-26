@@ -24,6 +24,14 @@ describe('addToCartStrategies', () => {
     ]);
   });
 
+  it("treats WooCommerce's class-disabled button as disabled, and nothing else by class", () => {
+    const byId = Object.fromEntries(addToCartStrategies('unknown').map((s) => [s.id, s]));
+    expect(byId['woo-single-add-to-cart-button']?.disabledClass).toBe('disabled');
+    for (const id of ['shopify-cart-add-form-submit', 'shopify-name-add', 'woo-add-to-cart-link']) {
+      expect(byId[id]?.disabledClass).toBeUndefined();
+    }
+  });
+
   it('tries everything, generic last, when the platform is unknown', () => {
     const ids = addToCartStrategies('unknown').map((s) => s.id);
     expect(ids).toHaveLength(5);

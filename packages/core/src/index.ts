@@ -12,4 +12,5 @@ export * from './schema.js';
 export * from './selectors.js';
 export * from './ssrf.js';
 export * from './user-agent.js';
+export * from './variants.js';
 export * from './version.js';
