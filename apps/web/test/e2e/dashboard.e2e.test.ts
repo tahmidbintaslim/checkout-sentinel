@@ -186,5 +186,45 @@ describe.skipIf(!services.available)(
       expect(await page.getByRole('button', { name: 'Download Mobile trace' }).count()).toBe(1);
       expect(pageProblems).toEqual([]);
     });
+
+    it('keeps typed values, focus and confirmations when a link, filter or token changes', async () => {
+      const focused = () => page.evaluate(() => document.activeElement?.id ?? '');
+      await page.goto(`${base}/monitors/new`);
+      const name = page.getByLabel('Name', { exact: true });
+      await name.fill('Typed name');
+      await page.getByLabel('Product URL').fill('not a url');
+      await page.getByRole('button', { name: 'Create monitor' }).click();
+      const summary = page.getByRole('alert').filter({ hasText: 'Fix 1 problem' });
+      await summary.waitFor();
+      await summary.getByRole('link', { name: 'Product URL' }).click();
+      await page.waitForURL(/\/monitors\/new#field-url$/);
+      expect(await name.inputValue()).toBe('Typed name');
+      expect(await summary.count()).toBe(1);
+      await page.locator('.skip-link').focus();
+      await page.keyboard.press('Enter');
+      await page.waitForURL(/\/monitors\/new#main$/);
+      expect(await name.inputValue()).toBe('Typed name');
+
+      // The two monitors of the tests above, after "All monitors".
+      await page.goto(`${base}/alerts`);
+      const filter = page.getByLabel('Monitor', { exact: true });
+      await expect.poll(() => filter.locator('option').count(), UI).toBe(3);
+      await filter.focus();
+      await page.keyboard.press('ArrowDown');
+      await page.waitForURL(/\/alerts\?monitor=/);
+      const first = page.url();
+      expect(await focused()).toBe('alert-monitor-filter');
+      await page.keyboard.press('ArrowDown');
+      await expect.poll(() => page.url(), UI).not.toBe(first);
+      expect(await focused()).toBe('alert-monitor-filter');
+
+      await page.goto(`${base}/settings`);
+      await page.getByLabel('API token').fill(TOKEN);
+      const save = page.getByRole('button', { name: 'Save token' });
+      await save.click();
+      await page.getByText('Token saved for this tab.').waitFor(UI);
+      expect(await save.evaluate((button) => button === document.activeElement)).toBe(true);
+      expect(pageProblems).toEqual([]);
+    });
   },
 );
