@@ -13,7 +13,7 @@ All notable changes are recorded here. The format follows
   the dashboard reads sample data from static JSON and answers every write with 403. The data
   comes from `demo:data`, which runs real journeys against the fixture stores (one store fails on
   mobile for three runs, then recovers) and derives status and alerts with the worker's state
-  machine. A GitHub Pages workflow (`demo-pages.yml`) and `apps/web/vercel.json` publish it.
+  machine. `apps/web/vercel.json` publishes it on Vercel.
 
 ### Changed
 

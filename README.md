@@ -289,11 +289,9 @@ What is real and what is not:
 - Every write (Run now, create, edit, delete) answers 403 with a read-only message.
 
 The build is `vite build --mode demo` (the app checks `import.meta.env.MODE`): the API client
-reads `demo-data/` instead of `/api`, and the API token page is left out. `.github/workflows/demo-pages.yml` publishes it to GitHub
-Pages when a push to `main` changes `apps/web`, `packages/core`, the workflow, `package.json`,
-`pnpm-lock.yaml` or `pnpm-workspace.yaml` (or when run by hand), once Pages is set to deploy from GitHub Actions
-(Settings > Pages > Source). `apps/web/vercel.json` holds the same build for a Vercel project
-with `apps/web` as its root directory.
+reads `demo-data/` instead of `/api`, and the API token page is left out. It is live at
+<https://checkout-sentinel-demo.vercel.app>, a Vercel project with `apps/web` as its root
+directory that builds it from `apps/web/vercel.json`.
 
 ## Dashboard
 
