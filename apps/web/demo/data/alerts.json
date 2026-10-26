@@ -1,0 +1,44 @@
+{
+  "items": [
+    {
+      "id": "cfa40204-cf13-48fb-93d1-cfcf12d7fff4",
+      "runId": "87cfe970-71c6-4db9-a67a-2925844609b9",
+      "monitorId": "demo-tee",
+      "monitorName": "Demo Tee (Shopify)",
+      "kind": "recovery",
+      "channelType": "webhook",
+      "status": "sent",
+      "responseStatus": 200,
+      "error": null,
+      "createdAt": "2026-10-26T05:00:01.531Z",
+      "sentAt": "2026-10-26T05:00:01.531Z"
+    },
+    {
+      "id": "ea8db520-cbc1-4afe-a84f-f0f80d18aa98",
+      "runId": "1e797d9e-0393-409d-a534-412618c88ef7",
+      "monitorId": "demo-slow",
+      "monitorName": "Demo Tee, slow checkout (Shopify)",
+      "kind": "slow",
+      "channelType": "webhook",
+      "status": "sent",
+      "responseStatus": 200,
+      "error": null,
+      "createdAt": "2026-10-26T04:00:04.438Z",
+      "sentAt": "2026-10-26T04:00:04.438Z"
+    },
+    {
+      "id": "58c4ec1e-f90e-41fc-8168-e7c039d8d24c",
+      "runId": "149825de-1922-4b1b-8aa2-b7b8ed625ffa",
+      "monitorId": "demo-tee",
+      "monitorName": "Demo Tee (Shopify)",
+      "kind": "failure",
+      "channelType": "webhook",
+      "status": "sent",
+      "responseStatus": 200,
+      "error": null,
+      "createdAt": "2026-10-26T03:00:03.412Z",
+      "sentAt": "2026-10-26T03:00:03.412Z"
+    }
+  ],
+  "nextCursor": null
+}

@@ -1,0 +1,251 @@
+{
+  "id": "149825de-1922-4b1b-8aa2-b7b8ed625ffa",
+  "monitorId": "demo-tee",
+  "trigger": "schedule",
+  "status": "failed",
+  "startedAt": "2026-10-26T03:00:00.000Z",
+  "finishedAt": "2026-10-26T03:00:03.412Z",
+  "durationMs": 3412,
+  "detectedPlatform": "shopify",
+  "failedStep": "find_add_to_cart",
+  "error": null,
+  "artifacts": [
+    {
+      "name": "mobile-find_add_to_cart.png",
+      "kind": "screenshot",
+      "device": "mobile",
+      "step": "find_add_to_cart"
+    }
+  ],
+  "result": {
+    "schemaVersion": 1,
+    "tool": {
+      "name": "checkout-sentinel",
+      "version": "0.2.0"
+    },
+    "runId": "149825de-1922-4b1b-8aa2-b7b8ed625ffa",
+    "url": "https://demo-tee.example/products/demo-tee",
+    "requestedPlatform": "auto",
+    "startedAt": "2026-10-26T03:00:00.000Z",
+    "finishedAt": "2026-10-26T03:00:03.412Z",
+    "durationMs": 3412,
+    "status": "failed",
+    "summary": {
+      "journeys": 2,
+      "passed": 1,
+      "failed": 1,
+      "slowSteps": 0
+    },
+    "journeys": [
+      {
+        "device": "desktop",
+        "status": "passed",
+        "startedAt": "2026-10-26T03:00:00.000Z",
+        "durationMs": 729,
+        "platform": {
+          "detected": "shopify",
+          "used": "shopify",
+          "confidence": "high",
+          "signals": [
+            "window.Shopify is defined",
+            "meta[name=\"shopify-checkout-api-token\"] or shopify-digital-wallet",
+            "Shopify response headers (x-shopid, x-shopify-stage, powered-by: Shopify)",
+            "form[action*=\"/cart/add\"]"
+          ]
+        },
+        "steps": [
+          {
+            "name": "open_product",
+            "status": "passed",
+            "startedAt": "2026-10-26T03:00:00.196Z",
+            "durationMs": 125,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-tee.example/products/demo-tee",
+              "detectedPlatform": "shopify",
+              "platformUsed": "shopify",
+              "confidence": "high"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "find_add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T03:00:00.322Z",
+            "durationMs": 143,
+            "slow": false,
+            "details": {
+              "strategy": "shopify-cart-add-form-submit",
+              "matched": "submit button inside form[action*=\"/cart/add\"]"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T03:00:00.465Z",
+            "durationMs": 112,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartRequestSeen": true,
+              "cartRequestStatus": 302,
+              "cartRequestUrl": "https://demo-tee.example/cart/add"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "verify_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T03:00:00.577Z",
+            "durationMs": 6,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartAfter": 1,
+              "source": "/cart.js"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "go_to_checkout",
+            "status": "passed",
+            "startedAt": "2026-10-26T03:00:00.583Z",
+            "durationMs": 75,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-tee.example/checkouts/cn/fixture-checkout-xyz"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "checkout_renders",
+            "status": "passed",
+            "startedAt": "2026-10-26T03:00:00.658Z",
+            "durationMs": 51,
+            "slow": false,
+            "details": {
+              "finalUrl": "https://demo-tee.example/checkouts/cn/fixture-checkout-xyz"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          }
+        ]
+      },
+      {
+        "device": "mobile",
+        "status": "failed",
+        "startedAt": "2026-10-26T03:00:00.729Z",
+        "durationMs": 2683,
+        "platform": {
+          "detected": "shopify",
+          "used": "shopify",
+          "confidence": "high",
+          "signals": [
+            "window.Shopify is defined",
+            "meta[name=\"shopify-checkout-api-token\"] or shopify-digital-wallet",
+            "Shopify response headers (x-shopid, x-shopify-stage, powered-by: Shopify)",
+            "form[action*=\"/cart/add\"]"
+          ]
+        },
+        "failedStep": "find_add_to_cart",
+        "steps": [
+          {
+            "name": "open_product",
+            "status": "passed",
+            "startedAt": "2026-10-26T03:00:00.937Z",
+            "durationMs": 148,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-tee.example/products/demo-tee",
+              "detectedPlatform": "shopify",
+              "platformUsed": "shopify",
+              "confidence": "high"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "find_add_to_cart",
+            "status": "failed",
+            "startedAt": "2026-10-26T03:00:01.086Z",
+            "durationMs": 2161,
+            "slow": false,
+            "message": "Add-to-cart control exists (submit button inside form[action*=\"/cart/add\"]) but is hidden or disabled at this viewport",
+            "details": {
+              "hiddenMatches": 2,
+              "strategy": "shopify-cart-add-form-submit"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": [],
+            "screenshot": "mobile-find_add_to_cart.png"
+          },
+          {
+            "name": "add_to_cart",
+            "status": "skipped",
+            "startedAt": "2026-10-26T03:00:03.384Z",
+            "durationMs": 0,
+            "slow": false,
+            "message": "Skipped because find_add_to_cart failed",
+            "details": {},
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "verify_cart",
+            "status": "skipped",
+            "startedAt": "2026-10-26T03:00:03.384Z",
+            "durationMs": 0,
+            "slow": false,
+            "message": "Skipped because find_add_to_cart failed",
+            "details": {},
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "go_to_checkout",
+            "status": "skipped",
+            "startedAt": "2026-10-26T03:00:03.384Z",
+            "durationMs": 0,
+            "slow": false,
+            "message": "Skipped because find_add_to_cart failed",
+            "details": {},
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "checkout_renders",
+            "status": "skipped",
+            "startedAt": "2026-10-26T03:00:03.384Z",
+            "durationMs": 0,
+            "slow": false,
+            "message": "Skipped because find_add_to_cart failed",
+            "details": {},
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          }
+        ]
+      }
+    ]
+  }
+}

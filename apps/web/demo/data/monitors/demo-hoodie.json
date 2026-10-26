@@ -1,0 +1,33 @@
+{
+  "id": "demo-hoodie",
+  "name": "Demo Hoodie (WooCommerce)",
+  "url": "https://demo-hoodie.example/product/demo-hoodie/",
+  "platform": "auto",
+  "devices": [
+    "desktop",
+    "mobile"
+  ],
+  "schedule": "0 * * * *",
+  "timezone": "UTC",
+  "slowStepMs": 8000,
+  "alertAfterFailures": 2,
+  "alerts": [
+    {
+      "type": "webhook",
+      "url": "https://hooks.example/checkout-alerts",
+      "hasSecret": false
+    }
+  ],
+  "enabled": true,
+  "createdAt": "2026-10-25T23:00:00.000Z",
+  "updatedAt": "2026-10-25T23:00:00.000Z",
+  "status": {
+    "health": "passing",
+    "consecutiveFailures": 0,
+    "slowSteps": [],
+    "lastRunId": "21178b2c-72df-48fb-8541-49d0a5b3f04e",
+    "lastRunStatus": "passed",
+    "lastRunAt": "2026-10-26T06:00:01.483Z",
+    "healthChangedAt": "2026-10-26T00:00:01.375Z"
+  }
+}

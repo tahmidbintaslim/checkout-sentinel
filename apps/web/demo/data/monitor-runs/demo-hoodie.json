@@ -1,0 +1,89 @@
+{
+  "items": [
+    {
+      "id": "21178b2c-72df-48fb-8541-49d0a5b3f04e",
+      "monitorId": "demo-hoodie",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T06:00:00.000Z",
+      "finishedAt": "2026-10-26T06:00:01.483Z",
+      "durationMs": 1483,
+      "detectedPlatform": "woocommerce",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "96bc773a-26db-4362-99b1-63d9a9804ba3",
+      "monitorId": "demo-hoodie",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T05:00:00.000Z",
+      "finishedAt": "2026-10-26T05:00:01.337Z",
+      "durationMs": 1337,
+      "detectedPlatform": "woocommerce",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "126ddddd-cfe6-4f63-9f68-1717e2687c8a",
+      "monitorId": "demo-hoodie",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T04:00:00.000Z",
+      "finishedAt": "2026-10-26T04:00:01.314Z",
+      "durationMs": 1314,
+      "detectedPlatform": "woocommerce",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "936bc7e8-5747-4f7f-9b1c-a4793bb29fee",
+      "monitorId": "demo-hoodie",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T03:00:00.000Z",
+      "finishedAt": "2026-10-26T03:00:01.282Z",
+      "durationMs": 1282,
+      "detectedPlatform": "woocommerce",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "5c0a2236-a60f-4eb6-b616-0cc82125f8ba",
+      "monitorId": "demo-hoodie",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T02:00:00.000Z",
+      "finishedAt": "2026-10-26T02:00:01.333Z",
+      "durationMs": 1333,
+      "detectedPlatform": "woocommerce",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "3f386b61-f986-44f1-8b83-b23577fc87f7",
+      "monitorId": "demo-hoodie",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T01:00:00.000Z",
+      "finishedAt": "2026-10-26T01:00:01.341Z",
+      "durationMs": 1341,
+      "detectedPlatform": "woocommerce",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "64991f8e-b580-4018-b680-d23bfeea941a",
+      "monitorId": "demo-hoodie",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T00:00:00.000Z",
+      "finishedAt": "2026-10-26T00:00:01.375Z",
+      "durationMs": 1375,
+      "detectedPlatform": "woocommerce",
+      "failedStep": null,
+      "error": null
+    }
+  ],
+  "nextCursor": null
+}

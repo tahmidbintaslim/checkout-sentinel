@@ -1,6 +1,8 @@
 node_modules
 dist
+dist-demo
 coverage
 pnpm-lock.yaml
 checkout-sentinel-results
 packages/db/drizzle/meta
+apps/web/demo/data

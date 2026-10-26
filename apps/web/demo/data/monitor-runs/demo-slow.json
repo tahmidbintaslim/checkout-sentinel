@@ -1,0 +1,41 @@
+{
+  "items": [
+    {
+      "id": "3ce8899c-98a9-4ff4-bbf6-fd0ac9979524",
+      "monitorId": "demo-slow",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T06:00:00.000Z",
+      "finishedAt": "2026-10-26T06:00:04.396Z",
+      "durationMs": 4396,
+      "detectedPlatform": "shopify",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "0fb2711f-5464-45cb-b3af-8ee976188b9c",
+      "monitorId": "demo-slow",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T05:00:00.000Z",
+      "finishedAt": "2026-10-26T05:00:04.300Z",
+      "durationMs": 4300,
+      "detectedPlatform": "shopify",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "1e797d9e-0393-409d-a534-412618c88ef7",
+      "monitorId": "demo-slow",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T04:00:00.000Z",
+      "finishedAt": "2026-10-26T04:00:04.438Z",
+      "durationMs": 4438,
+      "detectedPlatform": "shopify",
+      "failedStep": null,
+      "error": null
+    }
+  ],
+  "nextCursor": null
+}

@@ -8,7 +8,7 @@ it recovers.
 It never enters payment details and never places an order.
 
 [![CI](https://github.com/tahmidbintaslim/checkout-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/tahmidbintaslim/checkout-sentinel/actions/workflows/ci.yml)
-License: MIT. Status: v0.2, early.
+License: MIT. Status: v0.2, early. A read-only demo of the dashboard with sample data is described under [Demo](#demo).
 
 ## Why
 
@@ -256,6 +256,43 @@ Counts are in the worker metrics (`checkout_sentinel_runs_swept_total`,
 `checkout_sentinel_runs_deleted_total` and others). The rules, including what happens when a
 lost run finishes after all, are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#housekeeping-stuck-runs-and-retention).
+
+## Demo
+
+A read-only build of the dashboard, with sample data, for a look without running anything:
+
+```bash
+pnpm install
+pnpm --filter @checkout-sentinel/web demo   # builds and serves it on http://localhost:4173
+```
+
+It shows three monitors. **Demo Tee (Shopify)** passes, fails three hourly runs in a row because
+a theme change hides Add to cart on mobile (the run shows the step, the message and the failure
+screenshot), then recovers. The alert log has one failure alert, one recovery alert and one slow
+alert from **Demo Tee, slow checkout**.
+
+![Demo monitor: run history with two passes, three mobile failures at Find add to cart, then two passes, and its failure and recovery alerts](docs/images/demo-monitor-light.png)
+
+![Demo run: desktop passes; on mobile, Find add to cart fails because the button is hidden at that viewport, with the screenshot taken at that step](docs/images/demo-run-light.png)
+
+What is real and what is not:
+
+- Every run is a real journey: `pnpm --filter @checkout-sentinel/web demo:data` (after
+  `pnpm build`) runs the core engine against the local fixture stores, switching one store to its
+  `mobile-hidden` variant and back. Steps, verdicts, durations, detected platforms and
+  screenshots are what those runs produced.
+- The runs are placed on an hourly timeline ending when the script ran, and fixture addresses
+  are rewritten to `*.example` hosts. No real store is checked.
+- Monitor status and alerts come from the worker's own state machine (`evaluateTransition`).
+  Each alert was delivered to the fixtures' local webhook receiver, not to Slack or a real
+  webhook. No database, Redis or worker is involved.
+- Every write (Run now, create, edit, delete) answers 403 with a read-only message.
+
+The build is `vite build --mode demo` (`VITE_DEMO=1` from `apps/web/.env.demo`): the API client
+reads `demo-data/` instead of `/api`. `.github/workflows/demo-pages.yml` publishes it to GitHub
+Pages on every push to `main` once Pages is set to deploy from GitHub Actions
+(Settings > Pages > Source). `apps/web/vercel.json` holds the same build for a Vercel project
+with `apps/web` as its root directory.
 
 ## Dashboard
 
