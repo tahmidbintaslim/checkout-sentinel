@@ -13,7 +13,7 @@ import {
 } from '@checkout-sentinel/db';
 import { probeTestServices, truncateAll } from '@checkout-sentinel/fixtures';
 import { JourneyScheduler, createRedis } from '@checkout-sentinel/jobs';
-import { DASHBOARD_CSP, createApp, loadApiConfig } from '@checkout-sentinel/api';
+import { DASHBOARD_CSP, createApp, dashboardDir, loadApiConfig } from '@checkout-sentinel/api';
 
 const services = await probeTestServices();
 const TOKEN = 'e2e-api-token-0123456789';
@@ -140,6 +140,13 @@ describe.skipIf(!services.available)('dashboard, /api prefix and run artifacts',
     expect(page.headers.get('x-frame-options')).toBe('DENY');
     expect(page.headers.get('cache-control')).toBe('no-cache');
     expect(await page.text()).toBe(INDEX_HTML);
+    // The file itself, asked for by name, carries the same page headers.
+    const indexFile = await api('/index.html', { auth: false });
+    expect(indexFile.status).toBe(200);
+    expect(indexFile.headers.get('content-security-policy')).toBe(DASHBOARD_CSP);
+    expect(indexFile.headers.get('x-frame-options')).toBe('DENY');
+    expect(indexFile.headers.get('cache-control')).toBe('no-cache');
+    expect(await indexFile.text()).toBe(INDEX_HTML);
 
     const asset = await api('/assets/index-abc123.js', { auth: false });
     expect(asset.status).toBe(200);
@@ -152,6 +159,41 @@ describe.skipIf(!services.available)('dashboard, /api prefix and run artifacts',
     );
     expect((await api('/.env', { auth: false })).status).toBe(404);
     expect((await api('/assets/missing.js', { auth: false })).status).toBe(404);
+  });
+
+  it('serves the API alone when the dashboard is turned off or not built', async () => {
+    const unbuilt = await mkdtemp(path.join(tmpdir(), 'checkout-sentinel-unbuilt-'));
+    const env = {
+      DATABASE_URL: services.databaseUrl,
+      REDIS_URL: services.redisUrl,
+      API_TOKEN: TOKEN,
+      LOG_LEVEL: 'silent',
+      MIGRATE_ON_BOOT: 'false',
+    };
+    try {
+      expect(dashboardDir(loadApiConfig({ ...env, DASHBOARD_DIR: dashboard }))).toBe(dashboard);
+      for (const [label, settings] of [
+        ['turned off', { DASHBOARD_DIR: dashboard, DASHBOARD_ENABLED: 'false' }],
+        ['not built', { DASHBOARD_DIR: unbuilt }],
+      ] as const) {
+        const config = loadApiConfig({ ...env, ...settings });
+        expect(dashboardDir(config), label).toBeNull();
+        const apiOnly = await createApp(config);
+        try {
+          await apiOnly.listen(0, '127.0.0.1');
+          const url = await apiOnly.getUrl();
+          const page = await fetch(`${url}/`, { headers: browserNavigation });
+          expect(page.status, label).toBe(404);
+          expect(await page.text(), label).not.toContain(INDEX_HTML);
+          expect((await fetch(`${url}/index.html`)).status, label).toBe(404);
+          expect((await fetch(`${url}/api/health`)).status, label).toBe(200);
+        } finally {
+          await apiOnly.close();
+        }
+      }
+    } finally {
+      await rm(unbuilt, { recursive: true, force: true });
+    }
   });
 
   it('answers a browser page load of a dashboard path with the dashboard, and scripts with the API', async () => {
