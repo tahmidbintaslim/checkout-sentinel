@@ -1,5 +1,5 @@
-# Self-hosted stack: Postgres, Redis, the API (http://localhost:3000, docs at /docs) and one
-# worker. Copy .env.example to .env first. Scale workers with:
+# Self-hosted stack: Postgres, Redis, the API with the dashboard (http://localhost:3000, API
+# under /api, docs at /docs) and one worker. Copy .env.example to .env first. Scale workers with:
 #   docker compose up -d --scale worker=3
 name: checkout-sentinel
 
@@ -50,6 +50,10 @@ services:
       PORT: 3000
       API_TOKEN: ${API_TOKEN:-}
       MIGRATE_ON_BOOT: 'true'
+      DASHBOARD_ENABLED: ${DASHBOARD_ENABLED:-true}
+    # Read-only: the dashboard shows the screenshots and offers the traces workers write here.
+    volumes:
+      - artifacts:/data/artifacts:ro
     ports:
       - '${API_PORT:-3000}:3000'
     depends_on:

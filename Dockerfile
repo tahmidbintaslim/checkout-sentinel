@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # One Dockerfile, two targets:
-#   docker build --target api    -t checkout-sentinel-api .
+#   docker build --target api    -t checkout-sentinel-api .     (API and the built dashboard)
 #   docker build --target worker -t checkout-sentinel-worker .
 
 ARG NODE_IMAGE=node:22-bookworm-slim
@@ -19,6 +19,7 @@ COPY packages/jobs/package.json packages/jobs/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/cli/package.json apps/cli/
+COPY apps/web/package.json apps/web/
 COPY test/fixtures/package.json test/fixtures/
 # Browsers are installed in the worker image below, matched to the locked Playwright version.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
@@ -30,13 +31,19 @@ COPY test test
 RUN pnpm build
 # --legacy: deploy without injectWorkspacePackages, which would change local dev linking.
 RUN pnpm deploy --legacy --filter @checkout-sentinel/api --prod /out/api \
- && pnpm deploy --legacy --filter @checkout-sentinel/worker --prod /out/worker
+ && pnpm deploy --legacy --filter @checkout-sentinel/worker --prod /out/worker \
+ && cp -r apps/web/dist /out/api/web
 
 # ---- api ----
 FROM ${NODE_IMAGE} AS api
-ENV NODE_ENV=production PORT=3000
+# The dashboard is static files served by the API at /. Artifacts are read from the volume the
+# workers write to (mounted read-only in docker-compose.yml).
+ENV NODE_ENV=production PORT=3000 DASHBOARD_DIR=/app/web ARTIFACTS_DIR=/data/artifacts
 WORKDIR /app
 COPY --from=build --chown=node:node /out/api ./
+# Owned by node like the worker's, so the shared volume is writable for workers whichever
+# container creates it first.
+RUN mkdir -p /data/artifacts && chown node:node /data/artifacts
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
