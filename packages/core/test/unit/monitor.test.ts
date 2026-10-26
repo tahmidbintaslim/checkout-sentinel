@@ -82,3 +82,57 @@ describe('MonitorPatchSchema', () => {
     expect(MonitorPatchSchema.safeParse({ unknownField: 1 }).success).toBe(false);
   });
 });
+
+describe('stored alert channel references', () => {
+  it('lets a PATCH keep stored channels by index without sending their secrets', async () => {
+    const { MonitorPatchSchema } = await import('@checkout-sentinel/core');
+    const patch = MonitorPatchSchema.parse({
+      alerts: [
+        { type: 'stored', index: 1 },
+        { type: 'webhook', url: 'https://ops.test/hook' },
+      ],
+    });
+    expect(patch.alerts).toEqual([
+      { type: 'stored', index: 1 },
+      { type: 'webhook', url: 'https://ops.test/hook' },
+    ]);
+  });
+
+  it('rejects a stored channel referenced twice, a negative index and unknown fields', async () => {
+    const { MonitorPatchSchema } = await import('@checkout-sentinel/core');
+    const twice = MonitorPatchSchema.safeParse({
+      alerts: [
+        { type: 'stored', index: 0 },
+        { type: 'stored', index: 0 },
+      ],
+    });
+    expect(twice.success).toBe(false);
+    expect(twice.error?.issues.map((i) => i.path.join('.'))).toEqual(['alerts.1.index']);
+    expect(MonitorPatchSchema.safeParse({ alerts: [{ type: 'stored', index: -1 }] }).success).toBe(
+      false,
+    );
+    expect(
+      MonitorPatchSchema.safeParse({
+        alerts: [{ type: 'stored', index: 0, url: 'https://x.test' }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('keeps field paths for invalid channels in a PATCH', async () => {
+    const { MonitorPatchSchema } = await import('@checkout-sentinel/core');
+    const result = MonitorPatchSchema.safeParse({
+      alerts: [{ type: 'webhook', url: 'ftp://x.test' }],
+    });
+    expect(result.error?.issues.map((i) => i.path.join('.'))).toEqual(['alerts.0.url']);
+  });
+
+  it('is not accepted when creating a monitor, which has nothing stored yet', () => {
+    expect(
+      MonitorSpecSchema.safeParse({
+        name: 'x',
+        url: 'https://s.test/p',
+        alerts: [{ type: 'stored', index: 0 }],
+      }).success,
+    ).toBe(false);
+  });
+});

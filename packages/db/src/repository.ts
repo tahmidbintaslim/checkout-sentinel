@@ -1,5 +1,10 @@
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
-import type { MonitorSpec, RunResult } from '@checkout-sentinel/core';
+import type {
+  AlertChannel,
+  AlertChannelPatch,
+  MonitorSpec,
+  RunResult,
+} from '@checkout-sentinel/core';
 import type { Database } from './client.js';
 import {
   alertDeliveries,
@@ -13,6 +18,43 @@ import {
 } from './schema.js';
 
 export type MonitorWithState = MonitorRow & { state: MonitorStateRow | null };
+
+/** A partial update whose alert list may keep stored channels by index. */
+export type MonitorUpdate = Partial<Omit<MonitorSpec, 'alerts'>> & {
+  alerts?: AlertChannelPatch[] | undefined;
+};
+
+/** A stored channel reference in an update pointed past the end of the stored list. */
+export class UnknownStoredChannelError extends Error {
+  constructor(
+    /** Positions in the update's alert list whose reference matched no stored channel. */
+    readonly positions: number[],
+    readonly storedCount: number,
+  ) {
+    super(`No stored alert channel for position(s) ${positions.join(', ')}`);
+    this.name = 'UnknownStoredChannelError';
+  }
+}
+
+/** Replaces stored channel references with the channels they point at. */
+export function resolveStoredChannels(
+  update: AlertChannelPatch[],
+  stored: AlertChannel[],
+): AlertChannel[] {
+  const unknown: number[] = [];
+  const resolved: AlertChannel[] = [];
+  for (const [position, channel] of update.entries()) {
+    if (channel.type !== 'stored') {
+      resolved.push(channel);
+      continue;
+    }
+    const kept = stored[channel.index];
+    if (kept) resolved.push(kept);
+    else unknown.push(position);
+  }
+  if (unknown.length > 0) throw new UnknownStoredChannelError(unknown, stored.length);
+  return resolved;
+}
 
 function specToRow(spec: Partial<MonitorSpec>) {
   return {
@@ -84,8 +126,38 @@ export class MonitorRepository {
     return row ? { ...row.monitors, state: row.monitor_state } : null;
   }
 
-  async update(id: string, patch: Partial<MonitorSpec>): Promise<MonitorRow | null> {
-    const values = specToRow(patch);
+  /**
+   * Applies a partial update. Stored channel references in `alerts` are resolved against the
+   * row as it is when the update runs, with the row locked, so a concurrent update cannot
+   * change the stored list between the read and the write. Throws UnknownStoredChannelError
+   * when a reference points past the stored list.
+   */
+  async update(id: string, patch: MonitorUpdate): Promise<MonitorRow | null> {
+    const { alerts, ...rest } = patch;
+    if (alerts?.some((channel) => channel.type === 'stored')) {
+      return this.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ alerts: monitors.alerts })
+          .from(monitors)
+          .where(eq(monitors.id, id))
+          .for('update');
+        if (!current) return null;
+        const values = specToRow({
+          ...rest,
+          alerts: resolveStoredChannels(alerts, current.alerts),
+        });
+        const [row] = await tx
+          .update(monitors)
+          .set({ ...values, updatedAt: new Date() })
+          .where(eq(monitors.id, id))
+          .returning();
+        return row ?? null;
+      });
+    }
+    const values = specToRow({
+      ...rest,
+      ...(alerts !== undefined ? { alerts: resolveStoredChannels(alerts, []) } : {}),
+    });
     if (Object.keys(values).length === 0) return this.get(id);
     const [row] = await this.db
       .update(monitors)

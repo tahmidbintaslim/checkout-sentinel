@@ -1,13 +1,15 @@
-import type { AlertChannel, TargetGuard } from '@checkout-sentinel/core';
+import type { AlertChannelPatch, TargetGuard } from '@checkout-sentinel/core';
 import type { ValidationIssue } from '../common/validation.js';
 
 /**
  * Checks every URL in a monitor body against the SSRF guard (with DNS) and returns one issue
- * per refused URL, using the same paths as schema validation ("url", "alerts.1.url").
+ * per refused URL, using the same paths as schema validation ("url", "alerts.1.url"). Stored
+ * channel references carry no URL; their channels were checked when they were saved, and the
+ * worker checks every channel again before each delivery.
  */
 export async function findTargetIssues(
   guard: TargetGuard,
-  spec: { url?: string | undefined; alerts?: AlertChannel[] | undefined },
+  spec: { url?: string | undefined; alerts?: AlertChannelPatch[] | undefined },
 ): Promise<ValidationIssue[]> {
   const checks: Array<Promise<ValidationIssue | null>> = [];
   if (spec.url !== undefined) {
@@ -19,6 +21,7 @@ export async function findTargetIssues(
     );
   }
   for (const [index, channel] of (spec.alerts ?? []).entries()) {
+    if (channel.type === 'stored') continue;
     checks.push(
       guard
         .checkUrl(channel.url, channel.type)

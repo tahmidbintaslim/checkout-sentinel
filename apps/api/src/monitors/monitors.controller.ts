@@ -72,7 +72,11 @@ export class MonitorsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update some fields of a monitor; its schedule follows' })
+  @ApiOperation({
+    summary: 'Update some fields of a monitor; its schedule follows',
+    description:
+      '`alerts` replaces the list. Keep a stored channel, whose Slack URL or webhook secret is not returned, with `{ "type": "stored", "index": n }`, n being its position in the monitor\'s `alerts`.',
+  })
   @ApiNotFoundResponse()
   async update(
     @Param('id', uuid) id: string,
