@@ -77,13 +77,15 @@ Exit codes: `0` every journey passed, `1` a journey failed, `2` bad arguments or
 ### Try it without a real store
 
 The repository includes local fixture stores that imitate a Shopify product page and a
-WooCommerce product page, plus broken variants. Nothing leaves your machine.
+WooCommerce product page, plus broken variants and products with options. Nothing leaves your
+machine.
 
 ```bash
-pnpm fixtures   # starts 10 fixture stores on 127.0.0.1:4010-4019 and prints their URLs
+pnpm fixtures   # starts 14 fixture stores on 127.0.0.1:4010-4023 and prints their URLs
 # in another terminal:
 node apps/cli/dist/main.js run http://127.0.0.1:4015/product/demo-hoodie/
 node apps/cli/dist/main.js run http://127.0.0.1:4011/products/demo-tee --device mobile
+node apps/cli/dist/main.js run http://127.0.0.1:4020/products/demo-tee   # size and colour, default sold out
 ```
 
 ### Example output
@@ -238,14 +240,14 @@ More detail, including the data model, job flow, failure handling and scaling no
 Each device runs the same six steps in a fresh browser context (clean cookies, empty cart).
 Devices run one after another, never in parallel against the same store.
 
-| Step               | Passes when                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------------- |
-| `open_product`     | The product URL answers below 400 and is not the Shopify `/password` page                    |
-| `find_add_to_cart` | A visible, enabled add-to-cart control exists at this viewport                               |
-| `add_to_cart`      | It was clicked, and the cart request (if one was seen) did not return 4xx/5xx                |
-| `verify_cart`      | The cart's item count went up                                                                |
-| `go_to_checkout`   | The checkout path answers below 400                                                          |
-| `checkout_renders` | The final URL is a checkout URL (not the cart) and a checkout form or email field is visible |
+| Step               | Passes when                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `open_product`     | The product URL answers below 400 and is not the Shopify `/password` page                                                      |
+| `find_add_to_cart` | An available variant is chosen if the product has options, then a visible, enabled add-to-cart control exists at this viewport |
+| `add_to_cart`      | It was clicked, and the cart request (if one was seen) did not return 4xx/5xx                                                  |
+| `verify_cart`      | The cart's item count went up                                                                                                  |
+| `go_to_checkout`   | The checkout path answers below 400                                                                                            |
+| `checkout_renders` | The final URL is a checkout URL (not the cart) and a checkout form or email field is visible                                   |
 
 For every step the result records status, duration, console errors, uncaught page exceptions and
 failed requests (4xx/5xx responses, blocked and network failures). A failed step gets a
@@ -276,6 +278,58 @@ detection with `--platform` or the monitor's `platform` field.
 | Shopify     | submit button in `form[action*="/cart/add"]`, then `[name="add"]`                | `/cart.js` `item_count`                                       | `/checkout`, then `/checkouts/...` |
 | WooCommerce | `button.single_add_to_cart_button`, then `a[href*="add-to-cart="]`               | Store API `/wp-json/wc/store/v1/cart`, then the `/cart/` page | `/checkout/`                       |
 | any         | a button whose accessible name starts with "Add to cart/bag/basket" or "Buy now" | not verified (step is `skipped`)                              | `/checkout`                        |
+
+### Variant selection
+
+Many products cannot be added as the page first shows them: the theme wants a size chosen
+first, or the variant it selects by default is sold out, so the add-to-cart button stays
+disabled. Before it looks for the button, `find_add_to_cart` chooses a variant the way a shopper
+would.
+
+Shopify:
+
+- Product data comes from `/products/<handle>.js` (the AJAX product endpoint, keeping the page's
+  locale prefix), or from product JSON in a `<script type="application/json">` on the page when
+  the endpoint does not answer.
+- The variant is the one in the URL's `?variant=` when that one is available, else the first
+  variant with `available: true`.
+- Each option is set through the theme's own select or radio swatch, found by the option's name
+  (`options[Size]`, `Size-1`), its label or legend, its position, and last by value alone. A
+  radio is set by clicking its label. The journey then checks that the form's `id` field moved
+  to the chosen variant.
+- If no matching inputs are found, or the theme does not move the `id`, the hidden
+  `input[name="id"]` of the product's `/cart/add` form is set directly.
+
+WooCommerce:
+
+- Variation data comes from `data-product_variations` on `form.variations_form`. The first
+  variation that is in stock, purchasable, active and visible is chosen; an "any" attribute takes
+  the first option the form offers.
+- Each attribute select is set in turn, then the journey waits for WooCommerce to fill
+  `variation_id` and enable the button.
+- For products with many variations WooCommerce writes `false` instead of the data and asks the
+  store for each combination. The journey then tries combinations in page order, at most 20,
+  until one resolves in stock.
+
+Detection of an unknown platform does not stop this: a page with `form.variations_form` is
+treated as WooCommerce and a page with a `/cart/add` form as Shopify.
+
+The step's details record the choice: `variant` (for example `S / White` or
+`Size: Small, Color: Grey`), `variantId`, `variantSelectedBy` (`theme options`,
+`already selected`, `hidden input` or `not applied`), `variantSource`, and the counts
+`availableVariants` and `totalVariants` when the product data lists them. The CLI prints the
+variant next to the matched control. When every variant is sold out the step fails with
+`No available variant: all 4 variants are sold out` (WooCommerce: `variations are out of stock`)
+and nothing is added to the cart. A product with a single variant needs no choice and its
+details stay as before.
+
+Quantity is never changed: the journey leaves the quantity field at the page's default, which is
+1 on standard themes.
+
+On WooCommerce, a button with the class `disabled` counts as disabled. WooCommerce keeps the
+button of a variable product enabled for the browser and refuses the click in its own script
+until a variation in stock is chosen, so a click would otherwise do nothing and the journey
+would fail later at `verify_cart`.
 
 ### Being polite to the store
 
@@ -329,8 +383,22 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
 
 ## Limitations
 
-- Only the first variant is added; products that need an option chosen first (size, colour
-  without a default) fail at `find_add_to_cart` or `verify_cart`.
+- Only one variant is checked per journey: the first available one, or the one in a Shopify
+  `?variant=` URL. To watch a particular variant on Shopify, put its `?variant=<id>` in the
+  monitor URL. On WooCommerce the first variation in stock is chosen even when the URL
+  preselects attributes (`?attribute_pa_size=...`).
+- Variant pickers are recognised when they are selects or radio inputs (swatches built on
+  radios included). Pickers made of other elements, or inside a shadow DOM, fall back to
+  setting the form's hidden variant `id`. A theme that keeps its button disabled until its own
+  picker is used then fails at `find_add_to_cart` with "hidden or disabled".
+- Setting the hidden `id` can pass where a shopper would fail, for example when the theme's
+  picker script is broken but its button stays enabled. `variantSelectedBy: hidden input` in
+  the step details shows when that happened.
+- WooCommerce products whose variations load over AJAX are tried at most 20 combinations
+  deep. If none of those is in stock the step fails with
+  `No available variant among the first 20 of N option combinations`, even if a later one is.
+- Product add-ons, personalisation fields, bundles and subscriptions that require input
+  before add to cart are not filled in.
 - Stores behind bot protection, a password page, a geo redirect or a CAPTCHA will fail or be
   blocked. That is a real result for shoppers too, but it may not be what you want to monitor.
 - The checkout check stops at "the page renders with a form". It does not test shipping rates,
@@ -355,7 +423,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
 - Shopify app for one-click setup on a store
 - OpenTelemetry export of runs and steps
 - More platforms: BigCommerce, Magento (Adobe Commerce), Wix, Squarespace
-- Variant selection and custom journeys (log in, apply a discount code)
+- Custom journeys (log in, apply a discount code, check a chosen variant on WooCommerce)
 - More alert channels (email, Microsoft Teams, PagerDuty)
 
 ## License

@@ -59,6 +59,19 @@ Result schema version: 1 (unchanged).
 - Migration `0002_run_job_id` adds the nullable column `runs.job_id` and a partial index on it
   for running rows. The index is not built `CONCURRENTLY` either. Runs from before the migration
   have no job id; only the sweep finishes those.
+- Variant selection in `find_add_to_cart`. Before looking for the add-to-cart control, the
+  journey chooses an available variant. Shopify: product data from `/products/<handle>.js` or
+  product JSON in the page; the `?variant=` in the URL when available, else the first available
+  variant; set through the theme's selects and radio swatches, falling back to the form's hidden
+  `id`. WooCommerce: the first variation in stock from `data-product_variations`, set through
+  the attribute selects, waiting for `variation_id` and an enabled button; without variation
+  data, combinations are tried in order (at most 20). Quantity is never changed.
+- Step details `variant`, `variantId`, `variantSelectedBy`, `variantSource`,
+  `availableVariants` and `totalVariants` on `find_add_to_cart` when a variant was chosen. The
+  CLI prints the variant next to the matched control.
+- `find_add_to_cart` fails with `No available variant: ...` when every variant is sold out.
+- Fixture variants `variants` and `variants-sold-out` for both platforms, and fixture options
+  `productEndpoint`, `variantPickers` and `ajaxVariations`. `pnpm fixtures` starts 14 stores.
 
 ### Changed
 
@@ -72,6 +85,11 @@ Result schema version: 1 (unchanged).
   outcome; the job outcome is `discarded` only when the same worker still held the job. A worker
   exception no longer overwrites a run that already has a final status.
 - The worker stores a run's result and applies it to the monitor's state in one transaction.
+- A WooCommerce `button.single_add_to_cart_button` with the class `disabled` counts as disabled
+  in `find_add_to_cart`. A variable product with no variation chosen used to be clicked, and the
+  journey failed later at `verify_cart`.
+- A Shopify product whose only variant is sold out now fails `find_add_to_cart` with
+  `No available variant: the only variant is sold out` instead of "hidden or disabled".
 
 ## [0.1.0] - 2026-10-25
 
