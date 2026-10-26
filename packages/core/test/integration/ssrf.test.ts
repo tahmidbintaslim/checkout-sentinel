@@ -143,6 +143,34 @@ describe('SSRF guard in the browser journey', () => {
     expect(target.orderAttempts()).toBe(0);
   });
 
+  it("reads a Shopify product's variants through the egress proxy, redirect hops included", async () => {
+    const target = await store({
+      platform: 'shopify',
+      variant: 'variants',
+      productEndpoint: 'redirect-to-loopback',
+    });
+    const loopback = () =>
+      target.requests().filter((request) => request.host === `127.0.0.1:${port(target)}`);
+
+    // Control, without a guard: /products/demo-tee.js really redirects to 127.0.0.1.
+    const unguarded = await run(target.productUrl.replace('127.0.0.1', 'localhost'), {});
+    expect(unguarded.status).toBe('passed');
+    expect(loopback().map((request) => request.path)).toContain('/products/demo-tee.js');
+    const loopbackBefore = loopback().length;
+
+    const result = await run(storeTestUrl(target), { targetGuard: guardFor(target) });
+    expect(result.status).toBe('passed');
+    const find = result.journeys[0]?.steps.find((s) => s.name === 'find_add_to_cart');
+    expect(find?.details).toMatchObject({
+      variantId: '4302',
+      // The endpoint's hop was refused, so the product JSON in the page was used.
+      variantSource: 'product JSON in the page',
+      blockedRequests: `127.0.0.1:${port(target)} (127.0.0.1 is a loopback address (127.0.0.0/8))`,
+    });
+    expect(loopback()).toHaveLength(loopbackBefore);
+    expect(target.cartAdds().at(-1)).toEqual({ variantId: '4302', quantity: 1 });
+  });
+
   it('keeps the message of a step that failed for another reason while a subresource was refused', async () => {
     const target = await store({
       platform: 'shopify',

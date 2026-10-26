@@ -26,8 +26,25 @@ describe('shopifyProductJsPath', () => {
     ['https://s.test/product/demo-hoodie/', null],
     ['https://s.test/', null],
     ['not a url', null],
+    // The page controls its own path; a path that would resolve to another host gives null.
+    ['https://s.test//evil.test/products/x', null],
+    ['https://s.test//evil.test:8080/collections/all/products/x', null],
+    ['https://s.test/\\evil.test/products/x', null],
+    ['https://s.test/./%2F/products/x', '/%2F/products/x.js'],
   ])('%s -> %s', (url, expected) => {
     expect(shopifyProductJsPath(url)).toBe(expected);
+  });
+
+  it('never names another origin, whatever the page path', () => {
+    for (const url of [
+      'https://s.test//evil.test/products/x',
+      'https://s.test///evil.test/products/x',
+      'https://s.test/.//evil.test/products/x',
+      'https://s.test/fr//evil.test/products/x',
+    ]) {
+      const path = shopifyProductJsPath(url);
+      if (path !== null) expect(new URL(path, new URL(url).origin).origin).toBe('https://s.test');
+    }
   });
 });
 

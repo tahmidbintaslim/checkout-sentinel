@@ -98,19 +98,22 @@ export function parseShopifyProduct(input: unknown): ShopifyProduct | null {
 }
 
 /**
- * The AJAX product endpoint for a product page URL. A locale prefix is kept so the option
- * values come back in the language the page shows; a collection prefix is dropped.
+ * The AJAX product endpoint for a product page URL, on the page's own origin. A locale prefix
+ * is kept so the option values come back in the language the page shows; a collection prefix
+ * is dropped. The page controls its path (a redirect, `history.replaceState`), and a path that
+ * starts with `//` would name another host, so a path that leaves the origin gives null.
  */
 export function shopifyProductJsPath(pageUrl: string): string | null {
-  let pathname: string;
+  let page: URL;
   try {
-    pathname = new URL(pageUrl).pathname;
+    page = new URL(pageUrl);
   } catch {
     return null;
   }
-  const match = /^(.*?)(?:\/collections\/[^/]+)?\/products\/([^/.]+)\/?$/.exec(pathname);
+  const match = /^(.*?)(?:\/collections\/[^/]+)?\/products\/([^/.]+)\/?$/.exec(page.pathname);
   if (!match) return null;
-  return `${match[1] ?? ''}/products/${match[2] ?? ''}.js`;
+  const path = `${match[1] ?? ''}/products/${match[2] ?? ''}.js`;
+  return new URL(path, page.origin).origin === page.origin ? path : null;
 }
 
 export function shopifyVariantOptions(variant: ShopifyVariant): string[] {
@@ -141,9 +144,11 @@ async function readShopifyProduct(
   deadline: number,
 ): Promise<{ product: ShopifyProduct; source: string } | null> {
   const path = shopifyProductJsPath(page.url());
-  if (path) {
+  const origin = new URL(page.url()).origin;
+  const endpoint = path ? new URL(path, origin) : null;
+  if (path && endpoint?.origin === origin) {
     try {
-      const response = await request.get(new URL(path, page.url()).toString(), {
+      const response = await request.get(endpoint.toString(), {
         headers: { accept: 'application/json' },
         failOnStatusCode: false,
         maxRedirects: 3,
