@@ -98,6 +98,10 @@ Result schema version: 1 (unchanged).
 - A `PATCH` of `alerts` can keep a saved channel with `{ "type": "stored", "index": n }`, since
   Slack URLs and webhook secrets are never returned. An index past the end of the saved list is
   a 400 at `alerts.<position>.index`.
+- `PATCH /monitors/:id` takes `expectedUpdatedAt`, the monitor's `updatedAt` as the client read
+  it, and answers 409 without writing anything when the monitor changed since. It is required
+  with stored channel references, so an index from an older read never keeps the wrong channel.
+  Every update moves `updatedAt` forward by at least one millisecond, on the database's clock.
 - `@checkout-sentinel/core/schemas`: the monitor and result schemas without Playwright or Node
   modules, for browser code.
 - API settings `DASHBOARD_ENABLED` (default `true`), `DASHBOARD_DIR` (default the

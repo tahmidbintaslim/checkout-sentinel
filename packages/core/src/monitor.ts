@@ -161,8 +161,26 @@ export const MonitorPatchSchema = z
     alertAfterFailures: fields.alertAfterFailures.optional(),
     alerts: alertsPatch.optional(),
     enabled: fields.enabled.optional(),
+    /**
+     * The monitor's updatedAt as the client read it. When it differs, nothing is written (409).
+     * Required with stored channel references: an index means a channel only in the list it was
+     * read from.
+     */
+    expectedUpdatedAt: z.iso.datetime().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((patch, ctx) => {
+    if (
+      patch.expectedUpdatedAt === undefined &&
+      patch.alerts?.some((channel) => channel.type === 'stored')
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['expectedUpdatedAt'],
+        message: 'Required when alerts keeps stored channels; send the updatedAt you read',
+      });
+    }
+  });
 export type MonitorPatch = z.infer<typeof MonitorPatchSchema>;
 
 export const MonitorsFileSchema = z.object({

@@ -323,10 +323,17 @@ only the fields that changed.
 
 **Saved alert channels.** The API never returns Slack URLs or webhook secrets, so an edit cannot
 send them back. A `PATCH` may list `{ "type": "stored", "index": n }` in `alerts` to keep the
-channel at position `n` of the stored list. `MonitorRepository.update` resolves these
-references against the row inside a transaction holding the row lock (`SELECT ... FOR
-UPDATE`), so a concurrent update cannot change the list between the read and the write. An
-index past the end is a 400 at `alerts.<position>.index`, and nothing is written.
+channel at position `n` of the stored list. An index only means something in the list it was
+read from, and the client read that list earlier (the edit form loads it when it opens), so a
+`PATCH` with stored references must also send `expectedUpdatedAt`, the monitor's `updatedAt`
+from that read. `MonitorRepository.update` reads the row inside a transaction holding the row
+lock (`SELECT ... FOR UPDATE`): when `updatedAt` differs, it writes nothing and the API answers
+409; otherwise it resolves the references against that row and writes it in the same
+transaction. Every write sets `updatedAt` to the database's `now()`, and at least one
+millisecond past the previous value, because clients see it at millisecond precision. An index
+past the end is a 400 at `alerts.<position>.index`, and nothing is written. The dashboard sends
+`expectedUpdatedAt` whenever it replaces the list and, on a 409, says that nothing was saved
+and asks for a reload.
 
 **Freshness.** Pages poll while the tab is visible: the monitors list every 15 seconds; a
 monitor every 15 seconds, and every 2 seconds after Run now (until the new run finishes, at

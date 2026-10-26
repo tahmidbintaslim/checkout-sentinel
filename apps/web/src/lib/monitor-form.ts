@@ -213,7 +213,11 @@ export function toUpdatePayload(form: MonitorForm, monitor: Monitor): PayloadRes
     payload.alertAfterFailures = alertAfterFailures;
   }
   if (form.enabled !== monitor.enabled) payload.enabled = form.enabled;
-  if (!alertsUnchanged(form, monitor)) payload.alerts = form.alerts.map(channelPayload);
+  if (!alertsUnchanged(form, monitor)) {
+    payload.alerts = form.alerts.map(channelPayload);
+    // The list replaces the one this form loaded, and its stored indexes point into that one.
+    payload.expectedUpdatedAt = monitor.updatedAt;
+  }
 
   const parsed = MonitorPatchSchema.safeParse(payload);
   if (!parsed.success) return { ok: false, errors: errorsFromIssues(parsed.error.issues) };

@@ -190,7 +190,10 @@ always the API.
 
 Slack URLs are masked and webhook secrets are never returned. To keep a saved channel when you
 `PATCH` the `alerts` list, send `{ "type": "stored", "index": <its position in alerts> }` in its
-place, for example `"alerts": [{ "type": "stored", "index": 0 }, { "type": "webhook", "url": "..." }]`.
+place, and the monitor's `updatedAt` from the same read as `expectedUpdatedAt`, for example
+`"alerts": [{ "type": "stored", "index": 0 }, { "type": "webhook", "url": "..." }], "expectedUpdatedAt": "2026-10-26T10:00:00.000Z"`.
+If the monitor changed after that read, the API answers 409 and writes nothing: read it again and
+resend the change. Any `PATCH` may carry `expectedUpdatedAt`.
 
 ### Outbound URL checks
 

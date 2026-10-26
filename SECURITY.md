@@ -56,6 +56,9 @@ blob: data:`, `connect-src 'self'`, `object-src 'none'`, `base-uri 'self'`,
   The compose stack mounts the artifacts volume read-only on the API.
 - **Secrets.** Saved Slack URLs are shown masked and webhook secrets are never sent to the
   browser. An edit keeps them with a stored channel reference instead of sending them back.
+  The reference carries the `updatedAt` the form loaded, and the API refuses it (409) when the
+  monitor changed since, so an edit made from an old copy of the list cannot keep a channel
+  someone else removed.
 
 ## SSRF protection
 

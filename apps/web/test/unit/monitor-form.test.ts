@@ -158,10 +158,14 @@ describe('formFromMonitor and toUpdatePayload', () => {
           { type: 'stored', index: 1 },
           { type: 'slack', url: 'https://hooks.slack.com/services/T/B/NEW' },
         ],
+        expectedUpdatedAt: stored.updatedAt,
       },
     });
     form.alerts.splice(0, 2);
-    expect(toUpdatePayload(form, stored)).toEqual({ ok: true, payload: { alerts: [] } });
+    expect(toUpdatePayload(form, stored)).toEqual({
+      ok: true,
+      payload: { alerts: [], expectedUpdatedAt: stored.updatedAt },
+    });
   });
 
   it('reports channel errors at their position in the list', () => {

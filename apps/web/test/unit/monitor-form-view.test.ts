@@ -121,7 +121,25 @@ describe('edit monitor form', () => {
     expect(api.updateMonitor).toHaveBeenCalledWith(ID, {
       name: 'Renamed',
       alerts: [{ type: 'stored', index: 1 }],
+      expectedUpdatedAt: stored.updatedAt,
     });
     expect(router.currentRoute.value.path).toBe(`/monitors/${ID}`);
+  });
+
+  it('saves nothing and says so when the monitor changed after the form was opened', async () => {
+    const api = fakeApi({
+      getMonitor: stored,
+      updateMonitor: async () => {
+        throw new ApiError(409, 'The monitor changed after expectedUpdatedAt');
+      },
+    });
+    const { wrapper, router } = await mountAt(`/monitors/${ID}/edit`, api);
+    await wrapper.get('button[aria-label="Remove alert channel 1 (Slack)"]').trigger('click');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain(
+      'changed somewhere else after this form was opened, so nothing was saved',
+    );
+    expect(router.currentRoute.value.path).toBe(`/monitors/${ID}/edit`);
   });
 });

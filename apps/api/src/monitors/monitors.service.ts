@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -7,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { MonitorPatch, MonitorSpec, TargetGuard } from '@checkout-sentinel/core';
 import {
+  StaleMonitorError,
   UnknownStoredChannelError,
   type MonitorRepository,
   type MonitorWithState,
@@ -69,6 +71,11 @@ export class MonitorsService implements OnApplicationBootstrap {
   async update(id: string, patch: MonitorPatch): Promise<MonitorWithState> {
     await this.assertTargetsAllowed(patch);
     const row = await this.monitors.update(id, patch).catch((error: unknown) => {
+      if (error instanceof StaleMonitorError) {
+        throw new ConflictException(
+          `The monitor changed after expectedUpdatedAt (${patch.expectedUpdatedAt}); its updatedAt is now ${error.updatedAt.toISOString()}. Read it again and resend the change.`,
+        );
+      }
       if (!(error instanceof UnknownStoredChannelError)) throw error;
       throw validationError(
         error.positions.map((position) => ({

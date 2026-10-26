@@ -15,6 +15,7 @@ import {
 import {
   ApiAcceptedResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
@@ -75,8 +76,9 @@ export class MonitorsController {
   @ApiOperation({
     summary: 'Update some fields of a monitor; its schedule follows',
     description:
-      '`alerts` replaces the list. Keep a stored channel, whose Slack URL or webhook secret is not returned, with `{ "type": "stored", "index": n }`, n being its position in the monitor\'s `alerts`.',
+      '`alerts` replaces the list. Keep a stored channel, whose Slack URL or webhook secret is not returned, with `{ "type": "stored", "index": n }`, n being its position in the monitor\'s `alerts`, and send the monitor\'s `updatedAt` as `expectedUpdatedAt`. With `expectedUpdatedAt`, nothing is written when the monitor changed since.',
   })
+  @ApiConflictResponse({ description: 'The monitor changed after expectedUpdatedAt' })
   @ApiNotFoundResponse()
   async update(
     @Param('id', uuid) id: string,

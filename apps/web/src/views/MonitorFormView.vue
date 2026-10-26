@@ -139,6 +139,10 @@ async function submit() {
   } catch (e) {
     if (e instanceof ApiError && e.status === 400 && e.issues.length > 0) {
       await showErrors(Object.fromEntries(e.issues.map((issue) => [issue.path, issue.message])));
+    } else if (e instanceof ApiError && e.status === 409) {
+      saveError.value = new Error(
+        'The monitor was changed somewhere else after this form was opened, so nothing was saved. Reload the page to see its current settings, then make the change again.',
+      );
     } else {
       saveError.value = e;
     }

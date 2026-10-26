@@ -22,7 +22,17 @@ export type MonitorWithState = MonitorRow & { state: MonitorStateRow | null };
 /** A partial update whose alert list may keep stored channels by index. */
 export type MonitorUpdate = Partial<Omit<MonitorSpec, 'alerts'>> & {
   alerts?: AlertChannelPatch[] | undefined;
+  /** ISO timestamp of updatedAt as the client read it; the update is refused when it differs. */
+  expectedUpdatedAt?: string | undefined;
 };
+
+/** The monitor was written after the client read it, so its update would act on stale data. */
+export class StaleMonitorError extends Error {
+  constructor(readonly updatedAt: Date) {
+    super(`Monitor changed after it was read (updatedAt is now ${updatedAt.toISOString()})`);
+    this.name = 'StaleMonitorError';
+  }
+}
 
 /** A stored channel reference in an update pointed past the end of the stored list. */
 export class UnknownStoredChannelError extends Error {
@@ -72,6 +82,12 @@ function specToRow(spec: Partial<MonitorSpec>) {
     ...(spec.enabled !== undefined ? { enabled: spec.enabled } : {}),
   };
 }
+
+/**
+ * The database's clock, as for inserts, and at least one millisecond past the previous value:
+ * clients compare updatedAt at millisecond precision, so two writes never share one.
+ */
+const nextUpdatedAt = sql`greatest(now(), ${monitors.updatedAt} + interval '1 millisecond')`;
 
 export class MonitorRepository {
   constructor(private readonly db: Database) {}
@@ -127,28 +143,35 @@ export class MonitorRepository {
   }
 
   /**
-   * Applies a partial update. Stored channel references in `alerts` are resolved against the
-   * row as it is when the update runs, with the row locked, so a concurrent update cannot
-   * change the stored list between the read and the write. Throws UnknownStoredChannelError
-   * when a reference points past the stored list.
+   * Applies a partial update. With expectedUpdatedAt or stored channel references, the row is
+   * read and written in one transaction holding its lock: the update is refused with
+   * StaleMonitorError when updatedAt is no longer the one the client read, and references are
+   * resolved against that same list. Throws UnknownStoredChannelError when a reference points
+   * past the stored list.
    */
   async update(id: string, patch: MonitorUpdate): Promise<MonitorRow | null> {
-    const { alerts, ...rest } = patch;
-    if (alerts?.some((channel) => channel.type === 'stored')) {
+    const { alerts, expectedUpdatedAt, ...rest } = patch;
+    if (expectedUpdatedAt !== undefined || alerts?.some((channel) => channel.type === 'stored')) {
       return this.db.transaction(async (tx) => {
-        const [current] = await tx
-          .select({ alerts: monitors.alerts })
-          .from(monitors)
-          .where(eq(monitors.id, id))
-          .for('update');
+        const [current] = await tx.select().from(monitors).where(eq(monitors.id, id)).for('update');
         if (!current) return null;
+        // Clients see updatedAt in milliseconds, and every write moves it on by at least one.
+        if (
+          expectedUpdatedAt !== undefined &&
+          current.updatedAt.getTime() !== Date.parse(expectedUpdatedAt)
+        ) {
+          throw new StaleMonitorError(current.updatedAt);
+        }
         const values = specToRow({
           ...rest,
-          alerts: resolveStoredChannels(alerts, current.alerts),
+          ...(alerts !== undefined
+            ? { alerts: resolveStoredChannels(alerts, current.alerts) }
+            : {}),
         });
+        if (Object.keys(values).length === 0) return current;
         const [row] = await tx
           .update(monitors)
-          .set({ ...values, updatedAt: new Date() })
+          .set({ ...values, updatedAt: nextUpdatedAt })
           .where(eq(monitors.id, id))
           .returning();
         return row ?? null;
@@ -161,7 +184,7 @@ export class MonitorRepository {
     if (Object.keys(values).length === 0) return this.get(id);
     const [row] = await this.db
       .update(monitors)
-      .set({ ...values, updatedAt: new Date() })
+      .set({ ...values, updatedAt: nextUpdatedAt })
       .where(eq(monitors.id, id))
       .returning();
     return row ?? null;

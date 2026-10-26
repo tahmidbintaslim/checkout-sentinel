@@ -84,6 +84,8 @@ describe('MonitorPatchSchema', () => {
 });
 
 describe('stored alert channel references', () => {
+  const READ_AT = '2026-10-26T10:00:00.000Z';
+
   it('lets a PATCH keep stored channels by index without sending their secrets', async () => {
     const { MonitorPatchSchema } = await import('@checkout-sentinel/core');
     const patch = MonitorPatchSchema.parse({
@@ -91,6 +93,7 @@ describe('stored alert channel references', () => {
         { type: 'stored', index: 1 },
         { type: 'webhook', url: 'https://ops.test/hook' },
       ],
+      expectedUpdatedAt: READ_AT,
     });
     expect(patch.alerts).toEqual([
       { type: 'stored', index: 1 },
@@ -105,6 +108,7 @@ describe('stored alert channel references', () => {
         { type: 'stored', index: 0 },
         { type: 'stored', index: 0 },
       ],
+      expectedUpdatedAt: READ_AT,
     });
     expect(twice.success).toBe(false);
     expect(twice.error?.issues.map((i) => i.path.join('.'))).toEqual(['alerts.1.index']);
@@ -116,6 +120,27 @@ describe('stored alert channel references', () => {
         alerts: [{ type: 'stored', index: 0, url: 'https://x.test' }],
       }).success,
     ).toBe(false);
+  });
+
+  it('needs the updatedAt the client read whenever it keeps stored channels', async () => {
+    const { MonitorPatchSchema } = await import('@checkout-sentinel/core');
+    const unversioned = MonitorPatchSchema.safeParse({ alerts: [{ type: 'stored', index: 0 }] });
+    expect(unversioned.error?.issues.map((i) => i.path.join('.'))).toEqual(['expectedUpdatedAt']);
+    expect(
+      MonitorPatchSchema.safeParse({
+        alerts: [{ type: 'stored', index: 0 }],
+        expectedUpdatedAt: 'yesterday',
+      }).success,
+    ).toBe(false);
+    // New channels only: no index to misread, so the precondition stays optional.
+    expect(
+      MonitorPatchSchema.safeParse({ alerts: [{ type: 'webhook', url: 'https://ops.test/hook' }] })
+        .success,
+    ).toBe(true);
+    expect(MonitorPatchSchema.parse({ name: 'x', expectedUpdatedAt: READ_AT })).toEqual({
+      name: 'x',
+      expectedUpdatedAt: READ_AT,
+    });
   });
 
   it('keeps field paths for invalid channels in a PATCH', async () => {
