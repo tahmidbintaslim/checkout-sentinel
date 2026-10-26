@@ -289,9 +289,9 @@ What is real and what is not:
 - Every write (Run now, create, edit, delete) answers 403 with a read-only message.
 
 The build is `vite build --mode demo` (the app checks `import.meta.env.MODE`): the API client
-reads `demo-data/` instead of `/api`, and the API token page is left out. It is hosted on Vercel:
-a project with `apps/web` as its root directory builds it from `apps/web/vercel.json` on every
-push to `main`, and every PR gets a preview deployment.
+reads `demo-data/` instead of `/api`, and the API token page is left out. It is live at
+<https://checkout-sentinel-demo.vercel.app>, a Vercel project with `apps/web` as its root
+directory that builds it from `apps/web/vercel.json`.
 
 ## Dashboard
 
