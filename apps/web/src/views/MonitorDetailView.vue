@@ -78,7 +78,9 @@ async function load() {
 function checkQueuedRun() {
   const wait = waiting.value;
   if (!wait) return;
-  const fresh = runs.value.find((run) => !wait.known.has(run.id));
+  // `known` holds the newest page only; an older page's runs are not new, just unseen.
+  const fresh =
+    cursors.value.length === 0 ? runs.value.find((run) => !wait.known.has(run.id)) : undefined;
   if (fresh && fresh.status !== 'running') {
     waiting.value = null;
     const outcome =

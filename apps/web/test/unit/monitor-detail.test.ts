@@ -86,6 +86,36 @@ describe('monitor detail', () => {
     expect(status()).toBe('The run passed.');
   });
 
+  it('waits for the queued run on the newest page only', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const newest = Array.from({ length: 10 }, (_, i) =>
+      summary(`00000000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`, 'error'),
+    );
+    const api = fakeApi({
+      getMonitor: sampleMonitor(),
+      listRuns: async (_id: string, query: { before?: string }) =>
+        query.before
+          ? { items: [summary('00000000-0000-4000-8000-000000000200', 'error')], nextCursor: null }
+          : { items: newest, nextCursor: 'c1' },
+      listAlerts: { items: [], nextCursor: null },
+      getRun: sampleRun(),
+      runNow: { jobId: '9' },
+    });
+    const { wrapper } = await mountAt(`/monitors/${ID}`, api);
+    const button = (text: string) => wrapper.findAll('button').find((b) => b.text() === text)!;
+    const status = () => wrapper.get('[role="status"].run-status').text();
+
+    await button('Run now').trigger('click');
+    await flushPromises();
+    expect(status()).toContain('Run queued');
+    // The older page holds finished runs the page had not seen; none of them is the new run.
+    await button('Older runs').trigger('click');
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+    expect(status()).toContain('Run queued');
+  });
+
   it('never reports a finished run next to an older latest result', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     const oldRun = 'a3d1b2c4-0000-4000-8000-000000000001';
