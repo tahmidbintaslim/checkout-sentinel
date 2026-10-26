@@ -150,6 +150,40 @@ describe('deliverAlert', () => {
     status = 200;
   });
 
+  it('closes the connection once the status is known, even when the body never ends', async () => {
+    // A slow or streaming receiver: headers and part of a body, then nothing.
+    const stalling = createServer((req, res) => {
+      req.resume();
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.write('partial');
+    });
+    await new Promise<void>((resolve) => stalling.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(stalling.address() as AddressInfo).port}/hook`;
+    const openConnections = () =>
+      new Promise<number>((resolve, reject) => {
+        stalling.getConnections((error, count) => (error ? reject(error) : resolve(count)));
+      });
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        expect(
+          await deliverAlert({ type: 'webhook', url }, context, {
+            ...options,
+            attempts: 1,
+            timeoutMs: 1_000,
+          }),
+        ).toEqual({ ok: true, status: 200 });
+      }
+      const deadline = Date.now() + 2_000;
+      while ((await openConnections()) > 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(await openConnections()).toBe(0);
+    } finally {
+      stalling.closeAllConnections();
+      await new Promise<void>((resolve) => stalling.close(() => resolve()));
+    }
+  });
+
   it('reports network errors without throwing', async () => {
     const outcome = await deliverAlert(
       { type: 'webhook', url: 'http://127.0.0.1:1/nope' },

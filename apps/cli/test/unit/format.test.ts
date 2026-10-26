@@ -75,6 +75,49 @@ describe('formatRunResult', () => {
   });
 });
 
+describe('variant notes', () => {
+  const run = (steps: RunResult['journeys'][number]['steps']): RunResult => ({
+    schemaVersion: 1,
+    tool: { name: 'checkout-sentinel', version: '0.1.0' },
+    runId: 'r2',
+    url: 'https://s.test/products/tee',
+    requestedPlatform: 'auto',
+    startedAt: t,
+    finishedAt: t,
+    durationMs: 500,
+    status: 'passed',
+    summary: { journeys: 1, passed: 1, failed: 0, slowSteps: 0 },
+    journeys: [
+      { device: 'desktop', status: 'passed', startedAt: t, durationMs: 500, platform: null, steps },
+    ],
+  });
+
+  it('names the chosen variant and how it was set', () => {
+    const text = formatRunResult(
+      run([
+        step('find_add_to_cart', {
+          details: {
+            matched: 'submit button inside form[action*="/cart/add"]',
+            variant: 'S / White',
+            variantId: '4302',
+            variantSelectedBy: 'theme options',
+          },
+        }),
+      ]),
+    );
+    expect(text).toMatch(
+      /ok\s+find_add_to_cart\s+120 ms {2}submit button inside form\[action\*="\/cart\/add"\], variant S \/ White \(theme options\)/,
+    );
+  });
+
+  it('leaves the line as it was for a product without options', () => {
+    const text = formatRunResult(
+      run([step('find_add_to_cart', { details: { matched: 'button.single_add_to_cart_button' } })]),
+    );
+    expect(text).toMatch(/find_add_to_cart\s+120 ms {2}button\.single_add_to_cart_button$/m);
+  });
+});
+
 describe('formatMs', () => {
   it('switches to seconds at 1000 ms', () => {
     expect(formatMs(999)).toBe('999 ms');

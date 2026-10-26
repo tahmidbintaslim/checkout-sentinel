@@ -13,6 +13,10 @@ const combos: Array<[FixturePlatform, FixtureVariant]> = [
   ['woocommerce', 'js-error'],
   ['woocommerce', 'cart-500'],
   ['woocommerce', 'checkout-404'],
+  ['shopify', 'variants'],
+  ['shopify', 'variants-sold-out'],
+  ['woocommerce', 'variants'],
+  ['woocommerce', 'variants-sold-out'],
 ];
 
 const stores = await Promise.all(
@@ -21,7 +25,7 @@ const stores = await Promise.all(
   ),
 );
 for (const store of stores) {
-  console.log(`${`${store.platform}/${store.variant}`.padEnd(26)} ${store.productUrl}`);
+  console.log(`${`${store.platform}/${store.variant}`.padEnd(30)} ${store.productUrl}`);
 }
 console.log('Fixture stores running. Press Ctrl+C to stop.');
 

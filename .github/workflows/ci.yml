@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   checks:
-    name: Lint, typecheck, unit tests, build
+    name: Lint, typecheck, unit tests (with the dashboard's), build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -109,7 +109,10 @@ jobs:
           cp .env.example .env
           docker compose up -d --build --wait --wait-timeout 180
           curl --fail --silent http://localhost:3000/health
+          curl --fail --silent http://localhost:3000/api/health
           curl --fail --silent http://localhost:3000/docs/openapi.json > /dev/null
+          # The api image serves the built dashboard at /.
+          curl --fail --silent http://localhost:3000/ | grep -q '<div id="app"></div>'
       - name: Compose logs
         if: always()
         run: docker compose logs --no-color --tail 200

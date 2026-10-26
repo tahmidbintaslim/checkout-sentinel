@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ADD_TO_CART_NAME,
   CHECKOUT_TARGETS,
+  SCRIPT_DISABLED_CONTROLS,
   addToCartStrategies,
   isCartAddRequest,
   matchesCheckoutUrl,
@@ -22,6 +23,11 @@ describe('addToCartStrategies', () => {
       'woo-add-to-cart-link',
       'generic-button-name',
     ]);
+  });
+
+  it("treats WooCommerce's class-disabled button as disabled, and nothing else by class", () => {
+    // Checked on every candidate, whichever strategy matched it (integration tests run it).
+    expect(SCRIPT_DISABLED_CONTROLS).toBe('.single_add_to_cart_button.disabled');
   });
 
   it('tries everything, generic last, when the platform is unknown', () => {

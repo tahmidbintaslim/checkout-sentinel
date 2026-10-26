@@ -1,5 +1,5 @@
-# Self-hosted stack: Postgres, Redis, the API (http://localhost:3000, docs at /docs) and one
-# worker. Copy .env.example to .env first. Scale workers with:
+# Self-hosted stack: Postgres, Redis, the API with the dashboard (http://localhost:3000, API
+# under /api, docs at /docs) and one worker. Copy .env.example to .env first. Scale workers with:
 #   docker compose up -d --scale worker=3
 name: checkout-sentinel
 
@@ -7,6 +7,10 @@ x-app-env: &app-env
   DATABASE_URL: postgres://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel}@postgres:5432/${POSTGRES_DB:-checkout_sentinel}
   REDIS_URL: redis://redis:6379
   LOG_LEVEL: ${LOG_LEVEL:-info}
+  # Outbound URL checks (SSRF). Keep false unless every monitor author is trusted; see SECURITY.md.
+  ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+  ALLOWED_TARGET_HOSTS: ${ALLOWED_TARGET_HOSTS:-}
+  ALLOWED_TARGET_PORTS: ${ALLOWED_TARGET_PORTS:-}
 
 services:
   postgres:
@@ -46,6 +50,10 @@ services:
       PORT: 3000
       API_TOKEN: ${API_TOKEN:-}
       MIGRATE_ON_BOOT: 'true'
+      DASHBOARD_ENABLED: ${DASHBOARD_ENABLED:-true}
+    # Read-only: the dashboard shows the screenshots and offers the traces workers write here.
+    volumes:
+      - artifacts:/data/artifacts:ro
     ports:
       - '${API_PORT:-3000}:3000'
     depends_on:
@@ -66,6 +74,10 @@ services:
       PER_STORE_CONCURRENCY: ${PER_STORE_CONCURRENCY:-1}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       USER_AGENT_CONTACT_URL: ${USER_AGENT_CONTACT_URL:-}
+      HOUSEKEEPING_INTERVAL_MS: ${HOUSEKEEPING_INTERVAL_MS:-}
+      RUN_STALE_AFTER_MS: ${RUN_STALE_AFTER_MS:-}
+      RUN_RETENTION_DAYS: ${RUN_RETENTION_DAYS:-}
+    # One volume shared by every worker replica, so retention can remove any run's files.
     volumes:
       - artifacts:/data/artifacts
     # Chromium needs more shared memory than Docker's 64MB default.

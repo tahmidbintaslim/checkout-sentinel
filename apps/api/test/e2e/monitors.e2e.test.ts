@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { MonitorRepository, createDb } from '@checkout-sentinel/db';
 import { probeTestServices, truncateAll } from '@checkout-sentinel/fixtures';
 import { JourneyScheduler, createRedis, schedulerId } from '@checkout-sentinel/jobs';
 import { createApp, loadApiConfig } from '@checkout-sentinel/api';
@@ -171,6 +172,171 @@ describe.skipIf(!services.available)('API end to end (Postgres + Redis)', () => 
     expect((await api('/monitors/not-a-uuid')).status).toBe(400);
     expect((await api('/monitors/00000000-0000-4000-8000-000000000000')).status).toBe(404);
     expect((await api('/runs/00000000-0000-4000-8000-000000000000')).status).toBe(404);
+  });
+
+  it('keeps stored alert channels by index when the alert list is replaced', async () => {
+    const slack = 'https://hooks.slack.com/services/T111/B222/keepMeSecret';
+    const created = (await (
+      await api('/monitors', {
+        method: 'POST',
+        json: {
+          name: 'Channels',
+          url: 'https://store.example/products/tee',
+          enabled: false,
+          alerts: [
+            { type: 'slack', url: slack },
+            { type: 'webhook', url: 'https://ops.example/hook', secret: 'stored-webhook-secret' },
+          ],
+        },
+      })
+    ).json()) as { id: string; updatedAt: string };
+
+    const patched = await api(`/monitors/${created.id}`, {
+      method: 'PATCH',
+      json: {
+        alerts: [
+          { type: 'stored', index: 1 },
+          { type: 'webhook', url: 'https://ops.example/new' },
+          { type: 'stored', index: 0 },
+        ],
+        expectedUpdatedAt: created.updatedAt,
+      },
+    });
+    expect(patched.status).toBe(200);
+    const body = (await patched.json()) as { alerts: unknown[]; updatedAt: string };
+    expect(body.alerts).toEqual([
+      { type: 'webhook', url: 'https://ops.example/hook', hasSecret: true },
+      { type: 'webhook', url: 'https://ops.example/new', hasSecret: false },
+      { type: 'slack', url: 'https://hooks.slack.com/...cret' },
+    ]);
+    expect(JSON.stringify(body)).not.toContain('stored-webhook-secret');
+
+    const db = createDb(services.databaseUrl);
+    try {
+      const stored = await new MonitorRepository(db.db).get(created.id);
+      expect(stored?.alerts).toEqual([
+        { type: 'webhook', url: 'https://ops.example/hook', secret: 'stored-webhook-secret' },
+        { type: 'webhook', url: 'https://ops.example/new' },
+        { type: 'slack', url: slack },
+      ]);
+    } finally {
+      await db.close();
+    }
+
+    const pastTheEnd = await api(`/monitors/${created.id}`, {
+      method: 'PATCH',
+      json: {
+        name: 'Renamed',
+        alerts: [
+          { type: 'stored', index: 0 },
+          { type: 'stored', index: 3 },
+        ],
+        expectedUpdatedAt: body.updatedAt,
+      },
+    });
+    expect(pastTheEnd.status).toBe(400);
+    expect(((await pastTheEnd.json()) as { issues: unknown[] }).issues).toEqual([
+      {
+        path: 'alerts.1.index',
+        message: 'No stored alert channel at this index; the monitor has 3',
+      },
+    ]);
+    // A refused update changes nothing, the other fields included.
+    expect(await (await api(`/monitors/${created.id}`)).json()).toMatchObject({
+      name: 'Channels',
+      alerts: [{ url: 'https://ops.example/hook' }, { url: 'https://ops.example/new' }, {}],
+    });
+
+    const twice = await api(`/monitors/${created.id}`, {
+      method: 'PATCH',
+      json: {
+        alerts: [
+          { type: 'stored', index: 0 },
+          { type: 'stored', index: 0 },
+        ],
+        expectedUpdatedAt: body.updatedAt,
+      },
+    });
+    expect(twice.status).toBe(400);
+    expect(
+      (
+        await api('/monitors', {
+          method: 'POST',
+          json: {
+            name: 'x',
+            url: 'https://store.example/p',
+            alerts: [{ type: 'stored', index: 0 }],
+          },
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it('refuses stored channel references made against a list that changed since', async () => {
+    const created = (await (
+      await api('/monitors', {
+        method: 'POST',
+        json: {
+          name: 'Two tabs',
+          url: 'https://store.example/products/tee',
+          enabled: false,
+          alerts: [
+            { type: 'slack', url: 'https://hooks.slack.com/services/T0/B0/keepThisOne' },
+            { type: 'webhook', url: 'https://ops.example/remove-me', secret: 'remove-me-secret' },
+          ],
+        },
+      })
+    ).json()) as { id: string; updatedAt: string };
+    const patch = (json: unknown) => api(`/monitors/${created.id}`, { method: 'PATCH', json });
+
+    // Both tabs loaded the monitor as created. Tab B keeps only the webhook.
+    const tabB = await patch({
+      alerts: [{ type: 'stored', index: 1 }],
+      expectedUpdatedAt: created.updatedAt,
+    });
+    expect(tabB.status).toBe(200);
+    const afterB = (await tabB.json()) as { updatedAt: string };
+    expect(afterB.updatedAt).not.toBe(created.updatedAt);
+
+    // Tab A still shows the old list, where index 0 was the Slack channel.
+    const tabA = await patch({
+      name: 'Renamed',
+      alerts: [{ type: 'stored', index: 0 }],
+      expectedUpdatedAt: created.updatedAt,
+    });
+    expect(tabA.status).toBe(409);
+    expect(await tabA.json()).toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining('changed after'),
+    });
+    const db = createDb(services.databaseUrl);
+    try {
+      const stored = await new MonitorRepository(db.db).get(created.id);
+      expect(stored?.name).toBe('Two tabs');
+      expect(stored?.alerts).toEqual([
+        { type: 'webhook', url: 'https://ops.example/remove-me', secret: 'remove-me-secret' },
+      ]);
+      expect(stored?.updatedAt.toISOString()).toBe(afterB.updatedAt);
+    } finally {
+      await db.close();
+    }
+
+    // A reference without the version it was read at is refused before anything is read.
+    const unversioned = await patch({ alerts: [{ type: 'stored', index: 0 }] });
+    expect(unversioned.status).toBe(400);
+    expect(((await unversioned.json()) as { issues: unknown[] }).issues).toEqual([
+      {
+        path: 'expectedUpdatedAt',
+        message: 'Required when alerts keeps stored channels; send the updatedAt you read',
+      },
+    ]);
+
+    // Any PATCH may carry the precondition; each write moves updatedAt on.
+    const renamed = await patch({ name: 'Renamed', expectedUpdatedAt: afterB.updatedAt });
+    expect(renamed.status).toBe(200);
+    expect((await patch({ enabled: true, expectedUpdatedAt: afterB.updatedAt })).status).toBe(409);
+    const current = (await renamed.json()) as { updatedAt: string };
+    expect((await patch({ expectedUpdatedAt: current.updatedAt })).status).toBe(200);
   });
 
   it('queues a manual run and lists run history', async () => {

@@ -1,4 +1,4 @@
-import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
+import { Global, Inject, Logger, Module, type OnApplicationShutdown } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import {
   AlertDeliveryRepository,
@@ -7,6 +7,7 @@ import {
   createDb,
   type DbHandle,
 } from '@checkout-sentinel/db';
+import { TargetGuard, targetPolicyFromEnv, type ResolveHost } from '@checkout-sentinel/core';
 import { JourneyScheduler, createRedis } from '@checkout-sentinel/jobs';
 import type { ApiConfig } from './config.js';
 import { ApiMetrics } from './metrics/api-metrics.js';
@@ -19,7 +20,14 @@ import {
   REDIS,
   RUN_REPOSITORY,
   SCHEDULER,
+  TARGET_GUARD,
 } from './tokens.js';
+
+/** Overrides for tests; production uses the defaults. */
+export interface AppOptions {
+  /** Replaces the system DNS resolver used by the SSRF guard. */
+  resolveHost?: ResolveHost;
+}
 
 @Global()
 @Module({})
@@ -30,11 +38,24 @@ export class InfraModule implements OnApplicationShutdown {
     @Inject(SCHEDULER) private readonly scheduler: JourneyScheduler,
   ) {}
 
-  static forConfig(config: ApiConfig) {
+  static forConfig(config: ApiConfig, options: AppOptions = {}) {
     return {
       module: InfraModule,
       providers: [
         { provide: API_CONFIG, useValue: config },
+        {
+          provide: TARGET_GUARD,
+          useFactory: () => {
+            const logger = new Logger('TargetGuard');
+            return new TargetGuard(targetPolicyFromEnv(config), {
+              ...(options.resolveHost ? { resolve: options.resolveHost } : {}),
+              // The 400 names the host only; operators get the address here.
+              onDnsRefusal: ({ host, address, range }) => {
+                logger.debug(`Refused ${host}: resolves to ${address} (${range})`);
+              },
+            });
+          },
+        },
         { provide: DB_HANDLE, useFactory: () => createDb(config.DATABASE_URL) },
         { provide: REDIS, useFactory: () => createRedis(config.REDIS_URL) },
         {
@@ -72,6 +93,7 @@ export class InfraModule implements OnApplicationShutdown {
         RUN_REPOSITORY,
         DELIVERY_REPOSITORY,
         API_METRICS,
+        TARGET_GUARD,
       ],
     };
   }

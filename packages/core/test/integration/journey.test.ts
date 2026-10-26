@@ -99,7 +99,7 @@ describe.each<[Exclude<FixturePlatform, 'generic'>]>([['shopify'], ['woocommerce
       expect(agents.length).toBeGreaterThan(0);
       for (const agent of agents) {
         expect(agent).toMatch(
-          /checkout-sentinel\/0\.1\.0 \(\+https:\/\/github\.com\/tahmidbintaslim\/checkout-sentinel\)/,
+          /checkout-sentinel\/0\.2\.0 \(\+https:\/\/github\.com\/tahmidbintaslim\/checkout-sentinel\)/,
         );
       }
     });
@@ -152,6 +152,423 @@ describe.each<[Exclude<FixturePlatform, 'generic'>]>([['shopify'], ['woocommerce
     });
   },
 );
+
+function stepOf(result: RunResult, device: 'desktop' | 'mobile', name: StepName) {
+  return result.journeys.find((j) => j.device === device)?.steps.find((s) => s.name === name);
+}
+
+describe('variant selection', () => {
+  it('Shopify: chooses the first available variant in the theme picker when the default is sold out', async () => {
+    const target = await store({ platform: 'shopify', variant: 'variants' });
+    const result = await run(target);
+    expect(result.status).toBe('passed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      expect(stepStatuses(result, device)).toEqual(ALL_PASSED);
+      expect(stepOf(result, device, 'find_add_to_cart')?.details).toMatchObject({
+        variant: 'S / White',
+        variantId: '4302',
+        variantSelectedBy: 'theme options',
+        variantSource: '/products/demo-tee.js',
+        availableVariants: 2,
+        totalVariants: 4,
+      });
+    }
+    // One item of the chosen variant per journey, never more than one.
+    expect(target.cartAdds()).toEqual([
+      { variantId: '4302', quantity: 1 },
+      { variantId: '4302', quantity: 1 },
+    ]);
+  });
+
+  it('Shopify: keeps the variant named in the URL when it is available', async () => {
+    const target = await store({ platform: 'shopify', variant: 'variants' });
+    const result = await run(target, {
+      url: `${target.productUrl}?variant=4303`,
+      devices: 'desktop',
+    });
+    expect(result.status).toBe('passed');
+    // The theme renders the URL's variant as selected, so there is nothing to change.
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: 'M / Black',
+      variantId: '4303',
+      variantSelectedBy: 'already selected',
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '4303', quantity: 1 }]);
+  });
+
+  it('Shopify: reads the product JSON in the page when /products/<handle>.js does not answer', async () => {
+    const target = await store({
+      platform: 'shopify',
+      variant: 'variants',
+      productEndpoint: false,
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    // The header's featured product embeds its JSON and quick-add form first; the main
+    // product's are the ones used.
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variantId: '4302',
+      variantSelectedBy: 'theme options',
+      variantSource: 'product JSON in the page',
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '4302', quantity: 1 }]);
+  });
+
+  it('Shopify: sets the form hidden id when the theme picker is not one it recognises', async () => {
+    const target = await store({
+      platform: 'shopify',
+      variant: 'variants',
+      variantPickers: 'custom',
+    });
+    const result = await run(target);
+    expect(result.status).toBe('passed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      expect(stepOf(result, device, 'find_add_to_cart')?.details).toMatchObject({
+        variantId: '4302',
+        variantSelectedBy: 'hidden input',
+      });
+    }
+    expect(target.cartAdds().map((add) => add.variantId)).toEqual(['4302', '4302']);
+  });
+
+  it('Shopify: sets the hidden id when the theme options are set but its script does not move it', async () => {
+    const target = await store({
+      platform: 'shopify',
+      variant: 'variants',
+      variantPickers: 'unsynced',
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: 'S / White',
+      variantId: '4302',
+      variantSelectedBy: 'hidden input',
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '4302', quantity: 1 }]);
+  });
+
+  it('Shopify: never takes a quantity radio for an option with the same value', async () => {
+    const target = await store({
+      platform: 'shopify',
+      variantPickers: 'custom',
+      quantityPicker: 'radios',
+      shopifyVariants: {
+        options: ['Pack'],
+        variants: [
+          { id: 4301, values: ['1'], available: false },
+          { id: 4302, values: ['2'], available: true },
+          { id: 4303, values: ['3'], available: true },
+        ],
+      },
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: '2',
+      variantId: '4302',
+      variantSelectedBy: 'hidden input',
+    });
+    expect(stepOf(result, 'desktop', 'verify_cart')?.details).toMatchObject({
+      cartBefore: 0,
+      cartAfter: 1,
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '4302', quantity: 1 }]);
+  });
+
+  it('Shopify: fails with "no available variant" when the only variant is sold out', async () => {
+    const target = await store({
+      platform: 'shopify',
+      shopifyVariants: {
+        options: ['Title'],
+        variants: [{ id: 4242, values: ['Default Title'], available: false }],
+      },
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.journeys[0]?.failedStep).toBe('find_add_to_cart');
+    const find = stepOf(result, 'desktop', 'find_add_to_cart');
+    expect(find?.message).toBe('No available variant: the only variant is sold out');
+    expect(find?.details).toMatchObject({ availableVariants: 0, totalVariants: 1 });
+    expect(target.cartAdds()).toEqual([]);
+  });
+
+  it('Shopify: fails with "no available variant" when every variant is sold out', async () => {
+    const target = await store({ platform: 'shopify', variant: 'variants-sold-out' });
+    const result = await run(target);
+    expect(result.status).toBe('failed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      const journey = result.journeys.find((j) => j.device === device);
+      expect(journey?.failedStep).toBe('find_add_to_cart');
+      const find = stepOf(result, device, 'find_add_to_cart');
+      expect(find?.message).toBe('No available variant: all 4 variants are sold out');
+      expect(find?.details).toMatchObject({ availableVariants: 0, totalVariants: 4 });
+      expect(journey?.steps.slice(2).every((s) => s.status === 'skipped')).toBe(true);
+    }
+    expect(target.cartAdds()).toEqual([]);
+  });
+
+  it('Shopify: a product without options needs no choice', async () => {
+    const target = await store({ platform: 'shopify' });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    const details = stepOf(result, 'desktop', 'find_add_to_cart')?.details ?? {};
+    expect(details).not.toHaveProperty('variant');
+    expect(target.cartAdds()).toEqual([{ variantId: '4242', quantity: 1 }]);
+  });
+
+  it('WooCommerce: chooses the first variation in stock and waits for the button to enable', async () => {
+    const target = await store({ platform: 'woocommerce', variant: 'variants' });
+    const result = await run(target);
+    expect(result.status).toBe('passed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      expect(stepStatuses(result, device)).toEqual(ALL_PASSED);
+      expect(stepOf(result, device, 'find_add_to_cart')?.details).toMatchObject({
+        variant: 'Size: Small, Color: Grey',
+        variantId: '102',
+        variantSelectedBy: 'theme options',
+        variantSource: 'data-product_variations',
+        availableVariants: 2,
+        totalVariants: 3,
+      });
+    }
+    expect(target.cartAdds()).toEqual([
+      { variantId: '102', quantity: 1 },
+      { variantId: '102', quantity: 1 },
+    ]);
+  });
+
+  it('WooCommerce: tries combinations in order when variations load over AJAX', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: 'Size: Small, Color: Grey',
+      variantId: '102',
+      variantSource: 'wc-ajax=get_variation',
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '102', quantity: 1 }]);
+  });
+
+  it("WooCommerce: waits for WooCommerce's show_variation when the preselected default is out of stock", async () => {
+    // WooCommerce 9.8 and later set variation_id at once and update the button 300 ms later,
+    // so the button still says "unavailable" (Small / Blue) right after Grey is chosen.
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      wooDefaultAttributes: { attribute_pa_size: 'small', attribute_pa_color: 'blue' },
+    });
+    const result = await run(target);
+    expect(result.status).toBe('passed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      expect(stepOf(result, device, 'find_add_to_cart')?.details).toMatchObject({
+        variant: 'Size: Small, Color: Grey',
+        variantId: '102',
+        strategy: 'woo-single-add-to-cart-button',
+      });
+    }
+    expect(target.cartAdds()).toEqual([
+      { variantId: '102', quantity: 1 },
+      { variantId: '102', quantity: 1 },
+    ]);
+  });
+
+  it('WooCommerce: over AJAX, a combination tried after an out of stock one is judged on its own answer', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+      wooInStock: [102],
+    });
+    const result = await run(target);
+    expect(result.status).toBe('passed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      expect(stepOf(result, device, 'find_add_to_cart')?.details).toMatchObject({
+        variant: 'Size: Small, Color: Grey',
+        variantId: '102',
+        variantSource: 'wc-ajax=get_variation',
+      });
+    }
+    expect(target.cartAdds()).toEqual([
+      { variantId: '102', quantity: 1 },
+      { variantId: '102', quantity: 1 },
+    ]);
+  });
+
+  it('WooCommerce: over AJAX, starts from a preselected default that is out of stock', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+      wooInStock: [102],
+      wooDefaultAttributes: { attribute_pa_size: 'small', attribute_pa_color: 'blue' },
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: 'Size: Small, Color: Grey',
+      variantId: '102',
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '102', quantity: 1 }]);
+  });
+
+  it.each([[false], [true]])(
+    "WooCommerce: a theme's own variation script without WooCommerce's events (AJAX %s)",
+    async (ajaxVariations) => {
+      const target = await store({
+        platform: 'woocommerce',
+        variant: 'variants',
+        variationScript: 'theme',
+        ajaxVariations,
+        wooInStock: [102],
+        wooDefaultAttributes: { attribute_pa_size: 'small', attribute_pa_color: 'blue' },
+      });
+      const result = await run(target, {
+        devices: 'desktop',
+        timeouts: { stepMs: 10_000, navigationMs: 10_000 },
+      });
+      expect(result.status).toBe('passed');
+      expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+        variant: 'Size: Small, Color: Grey',
+        variantId: '102',
+      });
+      expect(target.cartAdds()).toEqual([{ variantId: '102', quantity: 1 }]);
+    },
+  );
+
+  it('WooCommerce: an "any" attribute takes the first option the form offers', async () => {
+    const target = await store({ platform: 'woocommerce', variant: 'variants', wooInStock: [103] });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: 'Size: Medium, Color: Blue',
+      variantId: '103',
+      availableVariants: 1,
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '103', quantity: 1 }]);
+  });
+
+  it('WooCommerce: fails when the chosen variation is shown but the button stays disabled', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      lockedAddToCart: true,
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.journeys[0]?.failedStep).toBe('find_add_to_cart');
+    const find = stepOf(result, 'desktop', 'find_add_to_cart');
+    expect(find?.message).toBe(
+      'Chose Size: Small, Color: Grey but the add-to-cart button did not enable',
+    );
+    expect(find?.details).toMatchObject({ variantId: '102' });
+    expect(target.cartAdds()).toEqual([]);
+  });
+
+  it('WooCommerce: waits for a slow variation lookup instead of calling the product sold out', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+      variationLookupDelayMs: 2_500,
+    });
+    const result = await run(target, {
+      devices: 'desktop',
+      timeouts: { stepMs: 15_000, navigationMs: 10_000 },
+    });
+    expect(result.status).toBe('passed');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+      variant: 'Size: Small, Color: Grey',
+      variantId: '102',
+    });
+    expect(target.cartAdds()).toEqual([{ variantId: '102', quantity: 1 }]);
+  });
+
+  it('WooCommerce: a lookup that does not answer within the step is not reported as sold out', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      ajaxVariations: true,
+      variationLookupDelayMs: 6_000,
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.journeys[0]?.failedStep).toBe('find_add_to_cart');
+    const find = stepOf(result, 'desktop', 'find_add_to_cart');
+    expect(find?.message).toBe(
+      'The variation lookup did not answer within the step timeout (0 of 4 option combinations answered out of stock)',
+    );
+    expect(find?.details).toMatchObject({ combinationsTried: 1, combinationsOutOfStock: 0 });
+    expect(target.cartAdds()).toEqual([]);
+  });
+
+  it('WooCommerce: a class-disabled button counts as disabled for every strategy', async () => {
+    // Attributes drawn as radio buttons are not chosen, so the button keeps its class
+    // "disabled". The generic strategy finds the same button by its name, "Add to cart".
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants',
+      wooAttributeInputs: 'radio',
+    });
+    const result = await run(target);
+    expect(result.status).toBe('failed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      const journey = result.journeys.find((j) => j.device === device);
+      expect(journey?.failedStep).toBe('find_add_to_cart');
+      expect(stepOf(result, device, 'find_add_to_cart')?.message).toBe(
+        'Add-to-cart control exists (button.single_add_to_cart_button) but is hidden or disabled at this viewport',
+      );
+    }
+    expect(target.cartAdds()).toEqual([]);
+  });
+
+  it.each([
+    ['shopify', 'S / White', '4302'],
+    ['woocommerce', 'Size: Small, Color: Grey', '102'],
+  ] as const)(
+    '%s: chooses a variant when the platform is not detected',
+    async (platform, variantName, variantId) => {
+      const target = await store({ platform, variant: 'variants', platformSignals: false });
+      const result = await run(target, { devices: 'desktop' });
+      expect(result.journeys[0]?.platform).toMatchObject({ detected: 'unknown', used: 'unknown' });
+      expect(stepOf(result, 'desktop', 'find_add_to_cart')?.details).toMatchObject({
+        variant: variantName,
+        variantId,
+      });
+      // Both cart APIs are tried when the platform is unknown.
+      expect(stepStatuses(result, 'desktop')).toEqual(ALL_PASSED);
+      expect(target.cartAdds()).toEqual([{ variantId, quantity: 1 }]);
+    },
+  );
+
+  it('WooCommerce: fails with "no available variant" when every variation is out of stock', async () => {
+    const target = await store({ platform: 'woocommerce', variant: 'variants-sold-out' });
+    const result = await run(target);
+    expect(result.status).toBe('failed');
+    for (const device of ['desktop', 'mobile'] as const) {
+      const journey = result.journeys.find((j) => j.device === device);
+      expect(journey?.failedStep).toBe('find_add_to_cart');
+      expect(stepOf(result, device, 'find_add_to_cart')?.message).toBe(
+        'No available variant: all 3 variations are out of stock',
+      );
+    }
+    expect(target.cartAdds()).toEqual([]);
+  });
+
+  it('WooCommerce: fails with "no available variant" over AJAX when no combination is in stock', async () => {
+    const target = await store({
+      platform: 'woocommerce',
+      variant: 'variants-sold-out',
+      ajaxVariations: true,
+    });
+    const result = await run(target, { devices: 'desktop' });
+    expect(result.journeys[0]?.failedStep).toBe('find_add_to_cart');
+    expect(stepOf(result, 'desktop', 'find_add_to_cart')?.message).toBe(
+      'No available variant: none of the 4 option combinations is in stock',
+    );
+    expect(target.cartAdds()).toEqual([]);
+  });
+});
 
 describe('JavaScript errors', () => {
   it('Shopify: an app script that throws before the AJAX handler binds breaks add to cart', async () => {

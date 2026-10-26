@@ -1,6 +1,10 @@
 import { z } from 'zod';
+import { TargetPolicyEnvSchema } from '@checkout-sentinel/core';
 
-const EnvSchema = z.object({
+/** The longest delay setInterval honors; Node replaces a longer one with 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+const EnvSchema = TargetPolicyEnvSchema.extend({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
@@ -13,6 +17,20 @@ const EnvSchema = z.object({
   ALERT_TIMEOUT_MS: z.coerce.number().int().min(500).default(10_000),
   NAVIGATION_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(30_000),
   STEP_TIMEOUT_MS: z.coerce.number().int().min(500).default(15_000),
+  /**
+   * A run still "running" this long after it started is marked error ("Worker lost"). Unset:
+   * 15 minutes, or longer when the timeouts allow longer runs (see staleRunThreshold).
+   */
+  RUN_STALE_AFTER_MS: z.coerce.number().int().min(60_000).optional(),
+  /** Runs older than this are deleted with their artifacts. 0 keeps run history forever. */
+  RUN_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(30),
+  /** How often this worker tries a housekeeping pass (sweep, then retention). 0 turns it off. */
+  HOUSEKEEPING_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .max(MAX_TIMER_MS, `must be at most ${MAX_TIMER_MS} (about 24.8 days, Node's timer limit)`)
+    .refine((ms) => ms === 0 || ms >= 10_000, 'must be 0 (off) or at least 10000')
+    .default(300_000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

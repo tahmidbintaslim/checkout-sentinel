@@ -1,5 +1,7 @@
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
+import pluginVue from 'eslint-plugin-vue';
+import vueA11y from 'eslint-plugin-vuejs-accessibility';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -30,6 +32,29 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/consistent-type-imports': 'off',
     },
+  },
+  // The dashboard: Vue single-file components, browser globals, accessibility rules.
+  ...pluginVue.configs['flat/recommended'].map((config) => ({
+    ...config,
+    files: ['apps/web/**/*.vue'],
+  })),
+  ...vueA11y.configs['flat/recommended'].map((config) => ({
+    ...config,
+    files: ['apps/web/**/*.vue'],
+  })),
+  {
+    files: ['apps/web/**/*.vue'],
+    languageOptions: {
+      parserOptions: { parser: tseslint.parser, extraFileExtensions: ['.vue'] },
+    },
+    rules: {
+      // A label is associated by wrapping its control or by for/id; either is enough.
+      'vuejs-accessibility/label-has-for': ['error', { required: { some: ['nesting', 'id'] } }],
+    },
+  },
+  {
+    files: ['apps/web/src/**/*.{ts,vue}', 'apps/web/test/unit/**/*.ts'],
+    languageOptions: { globals: { ...globals.browser } },
   },
   prettier,
 );

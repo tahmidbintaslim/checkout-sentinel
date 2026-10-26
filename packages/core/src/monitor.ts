@@ -44,19 +44,50 @@ export const CronScheduleSchema = z.string().superRefine((value, ctx) => {
 
 const HttpUrlSchema = z.url({ protocol: /^https?$/, error: 'Must be an http or https URL' });
 
+const WebhookChannelSchema = z.object({
+  type: z.literal('webhook'),
+  url: HttpUrlSchema,
+  /** When set, deliveries carry an X-Checkout-Sentinel-Signature HMAC-SHA256 header. */
+  secret: z.string().min(16).optional(),
+});
+
+const SlackChannelSchema = z.object({
+  type: z.literal('slack'),
+  url: HttpUrlSchema,
+});
+
 export const AlertChannelSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('webhook'),
-    url: HttpUrlSchema,
-    /** When set, deliveries carry an X-Checkout-Sentinel-Signature HMAC-SHA256 header. */
-    secret: z.string().min(16).optional(),
-  }),
-  z.object({
-    type: z.literal('slack'),
-    url: HttpUrlSchema,
-  }),
+  WebhookChannelSchema,
+  SlackChannelSchema,
 ]);
 export type AlertChannel = z.infer<typeof AlertChannelSchema>;
+
+/** Most alert channels one monitor may have. */
+export const MAX_ALERT_CHANNELS = 10;
+
+/**
+ * In a PATCH, the channel stored at this index of the monitor's alert list (the order the API
+ * returns it in), kept as it is. Slack URLs and webhook secrets are never returned, so this is
+ * how a client keeps a channel it cannot send back in full.
+ */
+export const StoredChannelRefSchema = z
+  .object({
+    type: z.literal('stored'),
+    index: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_ALERT_CHANNELS - 1),
+  })
+  .strict();
+export type StoredChannelRef = z.infer<typeof StoredChannelRefSchema>;
+
+export const AlertChannelPatchSchema = z.discriminatedUnion('type', [
+  WebhookChannelSchema,
+  SlackChannelSchema,
+  StoredChannelRefSchema,
+]);
+export type AlertChannelPatch = z.infer<typeof AlertChannelPatchSchema>;
 
 export const TimeoutsSchema = z.object({
   /** Page loads (product page, checkout). */
@@ -77,9 +108,27 @@ const fields = {
   slowStepMs: z.number().int().min(100).max(120_000),
   /** Consecutive failed runs before a failure alert; 2 filters one-off network blips. */
   alertAfterFailures: z.number().int().min(1).max(10),
-  alerts: z.array(AlertChannelSchema).max(10),
+  alerts: z.array(AlertChannelSchema).max(MAX_ALERT_CHANNELS),
   enabled: z.boolean(),
 };
+
+const alertsPatch = z
+  .array(AlertChannelPatchSchema)
+  .max(MAX_ALERT_CHANNELS)
+  .superRefine((channels, ctx) => {
+    const seen = new Set<number>();
+    for (const [position, channel] of channels.entries()) {
+      if (channel.type !== 'stored') continue;
+      if (seen.has(channel.index)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [position, 'index'],
+          message: `Stored channel ${channel.index} is referenced more than once`,
+        });
+      }
+      seen.add(channel.index);
+    }
+  });
 
 export const MonitorSpecSchema = z.object({
   name: fields.name,
@@ -96,7 +145,10 @@ export const MonitorSpecSchema = z.object({
 export type MonitorSpec = z.infer<typeof MonitorSpecSchema>;
 export type MonitorSpecInput = z.input<typeof MonitorSpecSchema>;
 
-/** Partial update: only the fields sent change. No defaults, unlike MonitorSpecSchema.partial(). */
+/**
+ * Partial update: only the fields sent change. No defaults, unlike MonitorSpecSchema.partial().
+ * `alerts` replaces the whole list; its items may be stored channel references.
+ */
 export const MonitorPatchSchema = z
   .object({
     name: fields.name.optional(),
@@ -107,10 +159,28 @@ export const MonitorPatchSchema = z
     timezone: fields.timezone.optional(),
     slowStepMs: fields.slowStepMs.optional(),
     alertAfterFailures: fields.alertAfterFailures.optional(),
-    alerts: fields.alerts.optional(),
+    alerts: alertsPatch.optional(),
     enabled: fields.enabled.optional(),
+    /**
+     * The monitor's updatedAt as the client read it. When it differs, nothing is written (409).
+     * Required with stored channel references: an index means a channel only in the list it was
+     * read from.
+     */
+    expectedUpdatedAt: z.iso.datetime().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((patch, ctx) => {
+    if (
+      patch.expectedUpdatedAt === undefined &&
+      patch.alerts?.some((channel) => channel.type === 'stored')
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['expectedUpdatedAt'],
+        message: 'Required when alerts keeps stored channels; send the updatedAt you read',
+      });
+    }
+  });
 export type MonitorPatch = z.infer<typeof MonitorPatchSchema>;
 
 export const MonitorsFileSchema = z.object({

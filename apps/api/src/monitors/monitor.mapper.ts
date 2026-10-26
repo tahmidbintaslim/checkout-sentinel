@@ -1,9 +1,17 @@
 import type { AlertChannel } from '@checkout-sentinel/core';
-import type { MonitorRow, MonitorStateRow, MonitorWithState, RunRow } from '@checkout-sentinel/db';
+import type {
+  AlertDeliveryRow,
+  MonitorRow,
+  MonitorStateRow,
+  MonitorWithState,
+  RunRow,
+} from '@checkout-sentinel/db';
 
 /**
  * Webhook secrets are write-only and Slack webhook URLs are credentials, so neither is
- * returned in full. Clients that PATCH alerts send the complete list again.
+ * returned in full. Clients that PATCH alerts send the complete list again, keeping a stored
+ * channel with { "type": "stored", "index": <its position in this list> } and sending this
+ * monitor's updatedAt as expectedUpdatedAt.
  */
 export function redactChannel(channel: AlertChannel) {
   if (channel.type === 'slack') {
@@ -56,5 +64,19 @@ export function toRunSummaryDto(run: RunRow) {
     detectedPlatform: run.detectedPlatform,
     failedStep: run.failedStep,
     error: run.error,
+  };
+}
+
+export function toAlertDto(delivery: AlertDeliveryRow) {
+  return {
+    id: delivery.id,
+    runId: delivery.runId,
+    kind: delivery.kind,
+    channelType: delivery.channelType,
+    status: delivery.status,
+    responseStatus: delivery.responseStatus,
+    error: delivery.error,
+    createdAt: delivery.createdAt.toISOString(),
+    sentAt: delivery.sentAt?.toISOString() ?? null,
   };
 }

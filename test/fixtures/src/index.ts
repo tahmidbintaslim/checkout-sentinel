@@ -1,7 +1,28 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import express, { type Request, type Response } from 'express';
+import {
+  JQUERY_PATH,
+  matchWooVariation,
+  shopifyCustomProduct,
+  shopifyOptionsMarkup,
+  shopifyOptionsProduct,
+  shopifyProductJs,
+  shopifySingleVariantMarkup,
+  shopifySingleVariantProduct,
+  wooVariations,
+  wooVariationsForm,
+  type ShopifyFixtureVariants,
+  type ShopifyPickerStyle,
+  type ShopifyQuantityPicker,
+  type WooVariationScript,
+} from './variants.js';
+
+const jqueryFile = createRequire(import.meta.url).resolve('jquery/dist/jquery.min.js');
+let jquerySource: string | undefined;
 
 /**
  * Minimal stand-ins for a Shopify Online Store 2.0 theme and a WooCommerce single product
@@ -20,7 +41,22 @@ export type FixtureVariant =
   /** The cart add endpoint answers 500. */
   | 'cart-500'
   /** The checkout route answers 404. */
-  | 'checkout-404';
+  | 'checkout-404'
+  /**
+   * The product page, requested by any host name other than 127.0.0.1, redirects to the same
+   * page on http://127.0.0.1, the way a hostile store could steer the browser to an internal
+   * address. SSRF guard tests.
+   */
+  | 'redirect-to-loopback'
+  /**
+   * The product has options that must be chosen. Shopify: size and colour, with no default
+   * size and a sold out first variant (S / Black); the first available variant is S / White.
+   * WooCommerce: a variable product (size and colour) whose button stays disabled until a
+   * variation in stock is chosen; the first one in stock is Small / Grey.
+   */
+  | 'variants'
+  /** Like `variants`, but every variant is sold out. */
+  | 'variants-sold-out';
 
 export interface FixtureStoreOptions {
   platform: FixturePlatform;
@@ -29,6 +65,67 @@ export interface FixtureStoreOptions {
   host?: string;
   /** Delay before the checkout responds, for slow-step tests. */
   checkoutDelayMs?: number;
+  /**
+   * Every HTML page, requested by any host name other than 127.0.0.1, loads a script in its
+   * head from http://127.0.0.1 on the store's own port, the way a page can reference an
+   * internal address in its markup. The script blocks the parser, so it is requested before
+   * DOMContentLoaded. Works with every variant. SSRF guard tests.
+   */
+  loopbackSubresource?: boolean;
+  /**
+   * Shopify: whether `/products/<handle>.js` answers (default true). Without it the product
+   * JSON is only in the page. `redirect-to-loopback`: requested by any host name other than
+   * 127.0.0.1, it redirects to the same path on http://127.0.0.1. SSRF guard tests.
+   */
+  productEndpoint?: boolean | 'redirect-to-loopback';
+  /**
+   * Shopify: the product's options and variants, in place of the product `variant` picks. A
+   * product with one variant gets the page without a picker.
+   */
+  shopifyVariants?: ShopifyFixtureVariants;
+  /** Shopify, products with options: the theme's variant picker (default `theme`). */
+  variantPickers?: ShopifyPickerStyle;
+  /** Shopify: the product form's quantity field (default `number`). */
+  quantityPicker?: ShopifyQuantityPicker;
+  /**
+   * WooCommerce `variants` variants: the form carries no variation data and the page asks the
+   * store for each combination, as WooCommerce does for products with many variations.
+   */
+  ajaxVariations?: boolean;
+  /** WooCommerce `variants` variants: the script that drives the form (default `woocommerce`). */
+  variationScript?: WooVariationScript;
+  /** WooCommerce `variants` variants: attribute values the form preselects. */
+  wooDefaultAttributes?: Readonly<Record<string, string>>;
+  /**
+   * WooCommerce `variants` variants: the ids of the variations in stock (101 Small / Blue,
+   * 102 Small / Grey, 103 Medium in any colour) in place of the default 102 and 103.
+   */
+  wooInStock?: readonly number[];
+  /** WooCommerce `variants` variants: radio buttons in place of the attribute selects. */
+  wooAttributeInputs?: 'select' | 'radio';
+  /** WooCommerce `variants` variants: a plugin keeps the button disabled after each variation shows. */
+  lockedAddToCart?: boolean;
+  /** WooCommerce: delay before `?wc-ajax=get_variation` answers. */
+  variationLookupDelayMs?: number;
+  /**
+   * false: leave out the headers, meta tags, globals and body classes that platform detection
+   * reads, so the store is detected as unknown. Default true.
+   */
+  platformSignals?: boolean;
+}
+
+/** One successful add to cart, as the store received it. */
+export interface FixtureCartAdd {
+  /** Shopify variant id, or the WooCommerce product id or variation id. */
+  variantId: string;
+  quantity: number;
+}
+
+export interface FixtureRequest {
+  /** The Host header, for example "store.test:4010" or "127.0.0.1:4010". */
+  host: string;
+  method: string;
+  path: string;
 }
 
 export interface FixtureStore {
@@ -40,6 +137,10 @@ export interface FixtureStore {
   orderAttempts(): number;
   /** Distinct User-Agent headers seen by the store. */
   userAgents(): string[];
+  /** Every request the store received, in order. */
+  requests(): FixtureRequest[];
+  /** Items the store added to a cart, in order. */
+  cartAdds(): FixtureCartAdd[];
   close(): Promise<void>;
 }
 
@@ -62,23 +163,64 @@ ${body}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const PRODUCT_IMAGE_PATH = '/wp-content/uploads/demo-hoodie.svg';
+const PRODUCT_IMAGE_DELAY_MS = 700;
+
+export const PRODUCT_PATHS: Readonly<Record<FixturePlatform, string>> = {
+  shopify: '/products/demo-tee',
+  woocommerce: '/product/demo-hoodie/',
+  generic: '/shop/widget',
+};
+
 export function createFixtureApp(options: FixtureStoreOptions): {
   app: express.Express;
   orderAttempts: () => number;
   userAgents: () => string[];
+  requests: () => FixtureRequest[];
+  cartAdds: () => FixtureCartAdd[];
 } {
   const variant = options.variant ?? 'ok';
+  const hasOptions = variant === 'variants' || variant === 'variants-sold-out';
+  const signals = options.platformSignals !== false;
   const carts = new Map<string, number>();
+  const adds: FixtureCartAdd[] = [];
   let orders = 0;
   const app = express();
   const agents = new Set<string>();
+  const requests: FixtureRequest[] = [];
   app.disable('x-powered-by');
   app.use((req, _res, next) => {
     if (req.headers['user-agent']) agents.add(req.headers['user-agent']);
+    requests.push({ host: req.headers.host ?? '', method: req.method, path: req.originalUrl });
     next();
   });
   app.use(express.urlencoded({ extended: false }));
   app.use(express.json());
+
+  if (variant === 'redirect-to-loopback') {
+    const productPath = PRODUCT_PATHS[options.platform];
+    app.use((req, res, next) => {
+      if (req.method === 'GET' && req.path === productPath && req.hostname !== '127.0.0.1') {
+        res.redirect(302, `http://127.0.0.1:${req.socket.localPort}${req.originalUrl}`);
+        return;
+      }
+      next();
+    });
+  }
+
+  if (options.loopbackSubresource) {
+    app.use((req, res, next) => {
+      if (req.hostname !== '127.0.0.1') {
+        const script = `<script src="http://127.0.0.1:${req.socket.localPort}/analytics.js"></script>`;
+        const send = res.send.bind(res);
+        res.send = ((body?: unknown) =>
+          send(
+            typeof body === 'string' ? body.replace('</head>', `${script}\n</head>`) : body,
+          )) as typeof res.send;
+      }
+      next();
+    });
+  }
 
   const session = (req: Request, res: Response): string => {
     const cookie = req.headers.cookie ?? '';
@@ -89,9 +231,10 @@ export function createFixtureApp(options: FixtureStoreOptions): {
     return id;
   };
   const cartCount = (req: Request, res: Response) => carts.get(session(req, res)) ?? 0;
-  const addItem = (req: Request, res: Response, quantity = 1) => {
+  const addItem = (req: Request, res: Response, variantId: string, quantity = 1) => {
     const id = session(req, res);
     carts.set(id, (carts.get(id) ?? 0) + quantity);
+    adds.push({ variantId, quantity });
   };
 
   const hideOnMobile =
@@ -102,14 +245,58 @@ export function createFixtureApp(options: FixtureStoreOptions): {
     variant === 'js-error' ? '<script>window.reviewsWidget.init({ stars: 5 });</script>' : '';
 
   if (options.platform === 'shopify') {
-    app.use((_req, res, next) => {
-      res.setHeader('x-shopid', '0000000');
-      res.setHeader('powered-by', 'Shopify');
-      next();
+    if (signals) {
+      app.use((_req, res, next) => {
+        res.setHeader('x-shopid', '0000000');
+        res.setHeader('powered-by', 'Shopify');
+        next();
+      });
+    }
+
+    const product = options.shopifyVariants
+      ? shopifyCustomProduct(options.shopifyVariants)
+      : hasOptions
+        ? shopifyOptionsProduct(variant === 'variants-sold-out')
+        : shopifySingleVariantProduct();
+    // Shopify themes draw no picker for a product with only its "Default Title" variant.
+    const picker = product.variants.length > 1;
+    const shopifyHead = `${
+      signals
+        ? `<meta name="shopify-checkout-api-token" content="fixture-token">
+<script>window.Shopify = { shop: 'fixture-store.myshopify.com', theme: { name: 'Dawn' } };</script>`
+        : ''
+    }
+${hideOnMobile}`;
+
+    app.get('/products/demo-tee.js', (req, res) => {
+      if (options.productEndpoint === false) {
+        res.status(404).json({ status: 404, message: 'Not Found' });
+        return;
+      }
+      if (options.productEndpoint === 'redirect-to-loopback' && req.hostname !== '127.0.0.1') {
+        res.redirect(302, `http://127.0.0.1:${req.socket.localPort}${req.originalUrl}`);
+        return;
+      }
+      res.json(shopifyProductJs(product));
     });
 
     app.get('/products/demo-tee', (req, res) => {
       session(req, res);
+      const quantity = options.quantityPicker ?? 'number';
+      if (picker) {
+        const requested = Number(req.query['variant']);
+        const markup = shopifyOptionsMarkup(product, {
+          pickers: options.variantPickers ?? 'theme',
+          quantity,
+          ...(Number.isInteger(requested) ? { selectedId: requested } : {}),
+        });
+        res
+          .type('html')
+          .send(
+            page('Demo Tee - Fixture Shopify Store', `${shopifyHead}\n${markup.head}`, markup.body),
+          );
+        return;
+      }
       // In the js-error variant the button is driven by theme JS (common for AJAX drawers),
       // and an app script that throws first stops the handler from ever binding.
       const button =
@@ -126,25 +313,34 @@ document.getElementById('ajax-add').addEventListener('click', async () => {
 });
 </script>`
           : '';
-      res.type('html').send(
-        page(
-          'Demo Tee - Fixture Shopify Store',
-          `<meta name="shopify-checkout-api-token" content="fixture-token">
-<script>window.Shopify = { shop: 'fixture-store.myshopify.com', theme: { name: 'Dawn' } };</script>
-${hideOnMobile}`,
-          `<main>
-<h1>Demo Tee</h1>
-<p>$25.00</p>
-<form method="post" action="/cart/add" id="product-form" class="form">
-  <input type="hidden" name="id" value="4242">
-  <input type="number" name="quantity" value="1" min="1">
-  ${button}
-</form>
-</main>
-${ajaxScript}`,
-        ),
-      );
+      res
+        .type('html')
+        .send(
+          page(
+            'Demo Tee - Fixture Shopify Store',
+            shopifyHead,
+            `${shopifySingleVariantMarkup(product, quantity, button)}\n${ajaxScript}`,
+          ),
+        );
     });
+
+    /** A request without an id adds the product's first variant, as the theme's form would. */
+    const requestedVariant = (body: unknown): string => {
+      const id = (body as Record<string, unknown> | undefined)?.['id'];
+      return id === undefined || id === '' ? String(product.variants[0]?.id) : String(id);
+    };
+    /** Shopify answers 404 for an unknown variant and 422 for a sold out one. */
+    const shopifyCartError = (id: string): { status: number; description: string } | null => {
+      const chosen = product.variants.find((v) => String(v.id) === id);
+      if (!chosen) return { status: 404, description: 'Cannot find variant' };
+      if (!chosen.available) {
+        return {
+          status: 422,
+          description: `The product '${product.title} - ${chosen.title}' is already sold out.`,
+        };
+      }
+      return null;
+    };
 
     app.post('/cart/add', (req, res) => {
       if (variant === 'cart-500') {
@@ -154,7 +350,16 @@ ${ajaxScript}`,
           .send(page('Error', '', '<h1>Internal Server Error</h1>'));
         return;
       }
-      addItem(req, res, Number(req.body?.quantity ?? 1) || 1);
+      const variantId = requestedVariant(req.body);
+      const error = shopifyCartError(variantId);
+      if (error) {
+        res
+          .status(error.status)
+          .type('html')
+          .send(page('Cart Error', '', `<h1>Cart Error</h1><p>${error.description}</p>`));
+        return;
+      }
+      addItem(req, res, variantId, Number(req.body?.quantity ?? 1) || 1);
       res.redirect(302, '/cart');
     });
 
@@ -163,8 +368,18 @@ ${ajaxScript}`,
         res.status(500).json({ status: 500, message: 'Cart Error' });
         return;
       }
-      addItem(req, res, Number(req.body?.quantity ?? 1) || 1);
-      res.json({ id: 4242, quantity: 1 });
+      const variantId = requestedVariant(req.body);
+      const error = shopifyCartError(variantId);
+      if (error) {
+        res.status(error.status).json({
+          status: error.status,
+          message: 'Cart Error',
+          description: error.description,
+        });
+        return;
+      }
+      addItem(req, res, variantId, Number(req.body?.quantity ?? 1) || 1);
+      res.json({ id: Number(variantId), quantity: 1 });
     });
 
     app.get('/cart.js', (req, res) => {
@@ -226,25 +441,49 @@ ${ajaxScript}`,
 
   if (options.platform === 'woocommerce') {
     const productPath = '/product/demo-hoodie/';
-    const wooHead = `<meta name="generator" content="WooCommerce 9.4.2">
-<script>var wc_add_to_cart_params = { ajax_url: '/wp-admin/admin-ajax.php', wc_ajax_url: '/?wc-ajax=%%endpoint%%' };</script>
+    const wooHead = `${
+      signals
+        ? `<meta name="generator" content="WooCommerce 10.3.0">
+<script>var wc_add_to_cart_params = { ajax_url: '/wp-admin/admin-ajax.php', wc_ajax_url: '/?wc-ajax=%%endpoint%%' };</script>`
+        : ''
+    }
 ${hideOnMobile}
 ${brokenScript}`;
+    const variations = hasOptions
+      ? wooVariations(variant === 'variants-sold-out', options.wooInStock)
+      : null;
+    const addForm = variations
+      ? wooVariationsForm(productPath, variations, {
+          ajax: options.ajaxVariations === true,
+          script: options.variationScript ?? 'woocommerce',
+          defaults: options.wooDefaultAttributes ?? {},
+          attributeInputs: options.wooAttributeInputs ?? 'select',
+          locked: options.lockedAddToCart === true,
+        })
+      : `<form class="cart" action="${productPath}" method="post" enctype="application/x-www-form-urlencoded">
+  <div class="quantity"><input type="number" name="quantity" value="1" min="1"></div>
+  <button type="submit" name="add-to-cart" value="42" class="single_add_to_cart_button button alt">Add to cart</button>
+</form>`;
+    // A product with options shows a gallery image that takes a while, as real ones do, so the
+    // load event comes after WooCommerce has resolved the preselected attributes.
+    const gallery = variations
+      ? `<img class="wp-post-image" src="${PRODUCT_IMAGE_PATH}" width="300" height="300" alt="Demo Hoodie">`
+      : '';
     const productPage = (notice: string) =>
       page(
         'Demo Hoodie - Fixture WooCommerce Store',
         wooHead,
         `<main>
 ${notice}
+${gallery}
 <h1 class="product_title entry-title">Demo Hoodie</h1>
 <p class="price">$45.00</p>
-<form class="cart" action="${productPath}" method="post" enctype="application/x-www-form-urlencoded">
-  <div class="quantity"><input type="number" name="quantity" value="1" min="1"></div>
-  <button type="submit" name="add-to-cart" value="42" class="single_add_to_cart_button button alt">Add to cart</button>
-</form>
+${addForm}
 </main>`,
-        'product-template-default single single-product woocommerce woocommerce-page',
+        `product-template-default single single-product${signals ? ' woocommerce woocommerce-page' : ''}${variations ? ' product-type-variable' : ''}`,
       );
+    const wooError = (text: string) =>
+      `<ul class="woocommerce-error" role="alert"><li>${text}</li></ul>`;
 
     app.get(productPath, (req, res) => {
       session(req, res);
@@ -259,7 +498,40 @@ ${notice}
           .send(page('Error', '', '<h1>There has been a critical error on this website.</h1>'));
         return;
       }
-      addItem(req, res, Number(req.body?.quantity ?? 1) || 1);
+      const quantity = Number(req.body?.quantity ?? 1) || 1;
+      if (variations) {
+        // WooCommerce answers a refused variable product add with the product page and an
+        // error notice, not an error status.
+        const variationId = String(req.body?.variation_id ?? '');
+        const chosen = variations.find((v) => String(v.variation_id) === variationId);
+        if (!chosen || matchWooVariation([chosen], req.body ?? {}) === undefined) {
+          res
+            .type('html')
+            .send(
+              productPage(
+                wooError(
+                  `Please choose product options by visiting <a href="${productPath}">Demo Hoodie</a>.`,
+                ),
+              ),
+            );
+          return;
+        }
+        if (!chosen.is_in_stock) {
+          res
+            .type('html')
+            .send(
+              productPage(
+                wooError(
+                  'You cannot add &quot;Demo Hoodie&quot; to the cart because the product is out of stock.',
+                ),
+              ),
+            );
+          return;
+        }
+        addItem(req, res, variationId, quantity);
+      } else {
+        addItem(req, res, String(req.body?.['add-to-cart'] ?? '42'), quantity);
+      }
       res
         .type('html')
         .send(
@@ -314,7 +586,22 @@ ${notice}
       orders += 1;
       res.status(200).send('order placed');
     });
-    app.post('/', (req, res) => {
+    app.get(PRODUCT_IMAGE_PATH, async (_req, res) => {
+      await sleep(PRODUCT_IMAGE_DELAY_MS);
+      res
+        .type('image/svg+xml')
+        .send('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"/>');
+    });
+    app.get(JQUERY_PATH, (_req, res) => {
+      jquerySource ??= readFileSync(jqueryFile, 'utf8');
+      res.type('text/javascript').send(jquerySource);
+    });
+    app.post('/', async (req, res) => {
+      if (req.query['wc-ajax'] === 'get_variation') {
+        if (options.variationLookupDelayMs) await sleep(options.variationLookupDelayMs);
+        res.json((variations && matchWooVariation(variations, req.body ?? {})) ?? false);
+        return;
+      }
       if (req.query['wc-ajax'] === 'checkout') orders += 1;
       res.status(200).json({ result: 'success' });
     });
@@ -345,18 +632,21 @@ ${notice}
   app.get('/favicon.ico', (_req, res) => {
     res.status(204).end();
   });
+  app.get('/analytics.js', (_req, res) => {
+    res.type('text/javascript').send('// fixture analytics\n');
+  });
 
-  return { app, orderAttempts: () => orders, userAgents: () => [...agents] };
+  return {
+    app,
+    orderAttempts: () => orders,
+    userAgents: () => [...agents],
+    requests: () => [...requests],
+    cartAdds: () => adds.map((add) => ({ ...add })),
+  };
 }
 
-export const PRODUCT_PATHS: Readonly<Record<FixturePlatform, string>> = {
-  shopify: '/products/demo-tee',
-  woocommerce: '/product/demo-hoodie/',
-  generic: '/shop/widget',
-};
-
 export async function startFixtureStore(options: FixtureStoreOptions): Promise<FixtureStore> {
-  const { app, orderAttempts, userAgents } = createFixtureApp(options);
+  const { app, orderAttempts, userAgents, requests, cartAdds } = createFixtureApp(options);
   const host = options.host ?? '127.0.0.1';
   const server: Server = await new Promise((resolve, reject) => {
     const s = app.listen(options.port ?? 0, host, (error?: Error) => {
@@ -373,6 +663,8 @@ export async function startFixtureStore(options: FixtureStoreOptions): Promise<F
     variant: options.variant ?? 'ok',
     orderAttempts,
     userAgents,
+    requests,
+    cartAdds,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.closeAllConnections();

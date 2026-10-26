@@ -3,9 +3,12 @@ import path from 'node:path';
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import {
   ExitCode,
+  TargetGuard,
+  TargetPolicyEnvSchema,
   VERSION,
   exitCodeFor,
   runJourneys,
+  targetPolicyFromEnv,
   type DeviceSelection,
   type RequestedPlatform,
   type RunResult,
@@ -18,6 +21,8 @@ export interface Io {
   stderr: (text: string) => void;
   paint: Paint;
   cwd: string;
+  /** Environment variables (ALLOWED_TARGET_HOSTS, ALLOWED_TARGET_PORTS). Defaults to process.env. */
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 export const defaultIo: Io = {
@@ -25,6 +30,7 @@ export const defaultIo: Io = {
   stderr: (text) => process.stderr.write(`${text}\n`),
   paint: ttyPaint,
   cwd: process.cwd(),
+  env: process.env,
 };
 
 const positiveInt = (value: string): number => {
@@ -43,6 +49,48 @@ interface RunFlags {
   navigationTimeout?: number;
   stepTimeout?: number;
   failOnPageErrors?: boolean;
+  blockPrivateTargets?: boolean;
+}
+
+interface CheckFlags {
+  config: string;
+  json?: boolean;
+  out: string;
+  blockPrivateTargets?: boolean;
+}
+
+/**
+ * The CLI runs on the user's own machine against URLs the user typed, so by default it may
+ * reach private and local addresses (local fixture stores, staging behind a VPN). The flag
+ * applies the same SSRF guard as the API and worker, for configs written by someone else.
+ */
+const BLOCK_PRIVATE_HELP =
+  'refuse private, loopback, link-local and metadata addresses (and redirects to them) and ports other than 80 and 443, as the API and worker do; ALLOWED_TARGET_HOSTS and ALLOWED_TARGET_PORTS add exceptions';
+
+/**
+ * Builds the guard from the same ALLOWED_TARGET_* settings as the worker, so a config that
+ * passes here passes there. ALLOW_PRIVATE_TARGETS is ignored: the flag asks for the guard.
+ */
+function guardFor(
+  block: boolean | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): { targetGuard?: TargetGuard } {
+  if (!block) return {};
+  // As in the API and worker, an empty variable means unset.
+  const settings = Object.fromEntries(
+    ['ALLOWED_TARGET_HOSTS', 'ALLOWED_TARGET_PORTS'].flatMap((name) => {
+      const value = env[name];
+      return value === undefined || value === '' ? [] : [[name, value]];
+    }),
+  );
+  const parsed = TargetPolicyEnvSchema.safeParse(settings);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    throw new ConfigError(`Invalid environment for --block-private-targets: ${issues}`);
+  }
+  return {
+    targetGuard: new TargetGuard({ ...targetPolicyFromEnv(parsed.data), allowPrivate: false }),
+  };
 }
 
 async function writeResult(outDir: string, result: RunResult): Promise<string> {
@@ -56,6 +104,7 @@ async function writeResult(outDir: string, result: RunResult): Promise<string> {
 /** Builds the CLI. Returns the program plus a getter for the exit code the last action chose. */
 export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: () => number } {
   let exitCode: number = ExitCode.Passed;
+  const env = io.env ?? process.env;
   const program = new Command('checkout-sentinel')
     .description('Synthetic add-to-cart and checkout checks for Shopify and WooCommerce stores.')
     .version(VERSION)
@@ -99,8 +148,10 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
       '--fail-on-page-errors',
       'fail a step when the page throws an uncaught exception during it',
     )
+    .option('--block-private-targets', BLOCK_PRIVATE_HELP)
     .action(async (productUrl: string, flags: RunFlags) => {
       const outDir = path.resolve(io.cwd, flags.out);
+      const guard = guardFor(flags.blockPrivateTargets, env);
       const result = await runJourneys({
         url: productUrl,
         platform: flags.platform,
@@ -112,6 +163,7 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
           ...(flags.stepTimeout ? { stepMs: flags.stepTimeout } : {}),
         },
         failOnPageErrors: flags.failOnPageErrors ?? false,
+        ...guard,
       });
       const file = await writeResult(outDir, result);
       if (flags.json) {
@@ -133,9 +185,11 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
       'directory for results and failure artifacts',
       'checkout-sentinel-results',
     )
-    .action(async (flags: { config: string; json?: boolean; out: string }) => {
+    .option('--block-private-targets', BLOCK_PRIVATE_HELP)
+    .action(async (flags: CheckFlags) => {
       const config = await loadMonitorsFile(path.resolve(io.cwd, flags.config));
       const outDir = path.resolve(io.cwd, flags.out);
+      const guard = guardFor(flags.blockPrivateTargets, env);
       const results: RunResult[] = [];
       for (const monitor of config.monitors.filter((m) => m.enabled)) {
         const result = await runJourneys({
@@ -145,6 +199,7 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
           slowStepMs: monitor.slowStepMs,
           artifactsDir: outDir,
           timeouts: config.defaults?.timeouts ?? {},
+          ...guard,
         });
         await writeResult(outDir, result);
         results.push(result);

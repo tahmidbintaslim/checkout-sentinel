@@ -5,6 +5,14 @@ export type AddToCartStrategy =
   | { id: string; platform: Platform; kind: 'role'; name: RegExp; description: string };
 
 /**
+ * Controls that are enabled for the browser but that the store's own script refuses to submit.
+ * WooCommerce keeps a variable product's button enabled and marks it with the class `disabled`
+ * until a variation in stock is chosen. This applies whichever strategy found the control: the
+ * generic strategy finds the same button by its name, "Add to cart".
+ */
+export const SCRIPT_DISABLED_CONTROLS = '.single_add_to_cart_button.disabled';
+
+/**
  * Ordered from most to least specific. Platform strategies match the markup the platform's
  * own templates emit (Dawn and other Online Store 2.0 themes for Shopify, the default
  * single-product template for WooCommerce). The generic strategy finds a button by its

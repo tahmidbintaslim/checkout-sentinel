@@ -1,5 +1,10 @@
-import { and, desc, eq, lt, sql } from 'drizzle-orm';
-import type { MonitorSpec, RunResult } from '@checkout-sentinel/core';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import type {
+  AlertChannel,
+  AlertChannelPatch,
+  MonitorSpec,
+  RunResult,
+} from '@checkout-sentinel/core';
 import type { Database } from './client.js';
 import {
   alertDeliveries,
@@ -13,6 +18,53 @@ import {
 } from './schema.js';
 
 export type MonitorWithState = MonitorRow & { state: MonitorStateRow | null };
+
+/** A partial update whose alert list may keep stored channels by index. */
+export type MonitorUpdate = Partial<Omit<MonitorSpec, 'alerts'>> & {
+  alerts?: AlertChannelPatch[] | undefined;
+  /** ISO timestamp of updatedAt as the client read it; the update is refused when it differs. */
+  expectedUpdatedAt?: string | undefined;
+};
+
+/** The monitor was written after the client read it, so its update would act on stale data. */
+export class StaleMonitorError extends Error {
+  constructor(readonly updatedAt: Date) {
+    super(`Monitor changed after it was read (updatedAt is now ${updatedAt.toISOString()})`);
+    this.name = 'StaleMonitorError';
+  }
+}
+
+/** A stored channel reference in an update pointed past the end of the stored list. */
+export class UnknownStoredChannelError extends Error {
+  constructor(
+    /** Positions in the update's alert list whose reference matched no stored channel. */
+    readonly positions: number[],
+    readonly storedCount: number,
+  ) {
+    super(`No stored alert channel for position(s) ${positions.join(', ')}`);
+    this.name = 'UnknownStoredChannelError';
+  }
+}
+
+/** Replaces stored channel references with the channels they point at. */
+export function resolveStoredChannels(
+  update: AlertChannelPatch[],
+  stored: AlertChannel[],
+): AlertChannel[] {
+  const unknown: number[] = [];
+  const resolved: AlertChannel[] = [];
+  for (const [position, channel] of update.entries()) {
+    if (channel.type !== 'stored') {
+      resolved.push(channel);
+      continue;
+    }
+    const kept = stored[channel.index];
+    if (kept) resolved.push(kept);
+    else unknown.push(position);
+  }
+  if (unknown.length > 0) throw new UnknownStoredChannelError(unknown, stored.length);
+  return resolved;
+}
 
 function specToRow(spec: Partial<MonitorSpec>) {
   return {
@@ -30,6 +82,12 @@ function specToRow(spec: Partial<MonitorSpec>) {
     ...(spec.enabled !== undefined ? { enabled: spec.enabled } : {}),
   };
 }
+
+/**
+ * The database's clock, as for inserts, and at least one millisecond past the previous value:
+ * clients compare updatedAt at millisecond precision, so two writes never share one.
+ */
+const nextUpdatedAt = sql`greatest(now(), ${monitors.updatedAt} + interval '1 millisecond')`;
 
 export class MonitorRepository {
   constructor(private readonly db: Database) {}
@@ -66,6 +124,11 @@ export class MonitorRepository {
     return rows.map((r) => ({ ...r.monitors, state: r.monitor_state }));
   }
 
+  async listIds(): Promise<string[]> {
+    const rows = await this.db.select({ id: monitors.id }).from(monitors);
+    return rows.map((row) => row.id);
+  }
+
   async listEnabled(): Promise<MonitorRow[]> {
     return this.db.select().from(monitors).where(eq(monitors.enabled, true));
   }
@@ -79,12 +142,49 @@ export class MonitorRepository {
     return row ? { ...row.monitors, state: row.monitor_state } : null;
   }
 
-  async update(id: string, patch: Partial<MonitorSpec>): Promise<MonitorRow | null> {
-    const values = specToRow(patch);
+  /**
+   * Applies a partial update. With expectedUpdatedAt or stored channel references, the row is
+   * read and written in one transaction holding its lock: the update is refused with
+   * StaleMonitorError when updatedAt is no longer the one the client read, and references are
+   * resolved against that same list. Throws UnknownStoredChannelError when a reference points
+   * past the stored list.
+   */
+  async update(id: string, patch: MonitorUpdate): Promise<MonitorRow | null> {
+    const { alerts, expectedUpdatedAt, ...rest } = patch;
+    if (expectedUpdatedAt !== undefined || alerts?.some((channel) => channel.type === 'stored')) {
+      return this.db.transaction(async (tx) => {
+        const [current] = await tx.select().from(monitors).where(eq(monitors.id, id)).for('update');
+        if (!current) return null;
+        // Clients see updatedAt in milliseconds, and every write moves it on by at least one.
+        if (
+          expectedUpdatedAt !== undefined &&
+          current.updatedAt.getTime() !== Date.parse(expectedUpdatedAt)
+        ) {
+          throw new StaleMonitorError(current.updatedAt);
+        }
+        const values = specToRow({
+          ...rest,
+          ...(alerts !== undefined
+            ? { alerts: resolveStoredChannels(alerts, current.alerts) }
+            : {}),
+        });
+        if (Object.keys(values).length === 0) return current;
+        const [row] = await tx
+          .update(monitors)
+          .set({ ...values, updatedAt: nextUpdatedAt })
+          .where(eq(monitors.id, id))
+          .returning();
+        return row ?? null;
+      });
+    }
+    const values = specToRow({
+      ...rest,
+      ...(alerts !== undefined ? { alerts: resolveStoredChannels(alerts, []) } : {}),
+    });
     if (Object.keys(values).length === 0) return this.get(id);
     const [row] = await this.db
       .update(monitors)
-      .set({ ...values, updatedAt: new Date() })
+      .set({ ...values, updatedAt: nextUpdatedAt })
       .where(eq(monitors.id, id))
       .returning();
     return row ?? null;
@@ -105,39 +205,139 @@ export interface RunPage {
   nextCursor: string | null;
 }
 
+export interface LostRun {
+  id: string;
+  monitorId: string;
+  startedAt: Date;
+}
+
+export interface DeletedRun {
+  id: string;
+  monitorId: string;
+}
+
+/** The error stored on a run whose job BullMQ started again before the run finished. */
+export const RUN_RETRIED_ERROR = 'Worker lost: BullMQ ran the job again before this run finished';
+
+export interface StartedRun {
+  run: RunRow;
+  /** Earlier attempts of the same job that were still running; now marked lost. */
+  superseded: string[];
+}
+
+type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
 export class RunRepository {
   constructor(private readonly db: Database) {}
 
-  async start(monitorId: string, trigger: 'schedule' | 'manual'): Promise<RunRow> {
-    const [row] = await this.db.insert(runs).values({ monitorId, trigger }).returning();
-    if (!row) throw new Error('insert returned no row');
-    return row;
+  /**
+   * Starts a run. With a jobId, earlier runs of the same job that are still "running" are
+   * marked error first (RUN_RETRIED_ERROR), in the same transaction: BullMQ only starts a job
+   * again when it has given up on the attempt in progress (its worker stalled or the attempt
+   * threw), so that attempt's result must not be applied after this one's. Its worker finds
+   * the run already final and discards the result (see StateRepository.applyRunResult).
+   */
+  async start(
+    monitorId: string,
+    trigger: 'schedule' | 'manual',
+    jobId?: string,
+  ): Promise<StartedRun> {
+    return this.db.transaction(async (tx) => {
+      const superseded =
+        jobId === undefined
+          ? []
+          : await tx
+              .update(runs)
+              .set({ status: 'error', finishedAt: sql`now()`, error: RUN_RETRIED_ERROR })
+              .where(
+                and(
+                  eq(runs.jobId, jobId),
+                  eq(runs.monitorId, monitorId),
+                  eq(runs.status, 'running'),
+                ),
+              )
+              .returning({ id: runs.id });
+      const [run] = await tx
+        .insert(runs)
+        .values({ monitorId, trigger, jobId: jobId ?? null })
+        .returning();
+      if (!run) throw new Error('insert returned no row');
+      return { run, superseded: superseded.map((row) => row.id) };
+    });
   }
 
-  async finish(runId: string, result: RunResult): Promise<RunRow> {
-    const failedStep = result.journeys.find((j) => j.failedStep)?.failedStep ?? null;
-    const [row] = await this.db
-      .update(runs)
-      .set({
-        status: result.status,
-        finishedAt: new Date(result.finishedAt),
-        durationMs: result.durationMs,
-        detectedPlatform: result.journeys.find((j) => j.platform)?.platform?.detected ?? null,
-        failedStep,
-        error: result.error?.message ?? null,
-        result,
-      })
-      .where(eq(runs.id, runId))
-      .returning();
-    if (!row) throw new Error(`run ${runId} not found`);
-    return row;
-  }
-
+  /** Marks a run that threw as error. It only changes a run that is still running. */
   async fail(runId: string, message: string): Promise<void> {
     await this.db
       .update(runs)
       .set({ status: 'error', finishedAt: new Date(), error: message })
-      .where(eq(runs.id, runId));
+      .where(and(eq(runs.id, runId), eq(runs.status, 'running')));
+  }
+
+  /**
+   * Marks runs that are still "running" staleAfterMs after they started (database clock) as
+   * error, oldest first. A row that a finishing worker holds locked is skipped, so its result
+   * wins. monitor_state is not touched: an error says nothing about the store.
+   */
+  async markLost(staleAfterMs: number, error: string, limit = 1_000): Promise<LostRun[]> {
+    const stale = this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.status, 'running'),
+          lt(runs.startedAt, sql`now() - make_interval(secs => ${staleAfterMs / 1000})`),
+        ),
+      )
+      .orderBy(runs.startedAt)
+      .limit(limit)
+      .for('update', { skipLocked: true });
+    return this.db
+      .update(runs)
+      .set({ status: 'error', finishedAt: sql`now()`, error })
+      .where(and(eq(runs.status, 'running'), inArray(runs.id, stale)))
+      .returning({ id: runs.id, monitorId: runs.monitorId, startedAt: runs.startedAt });
+  }
+
+  /**
+   * Deletes up to `limit` finished runs that started more than olderThanDays ago (database
+   * clock), oldest first. Their alert deliveries go with them (foreign key cascade). These are
+   * kept whatever their age:
+   * - each monitor's latest run, so its history is never empty;
+   * - the run monitor_state.last_run_id points at;
+   * - the run behind each monitor's latest alert of each kind, so the delivery rows of the
+   *   current state (for example the failure alert of an incident still open) stay;
+   * - runs still "running"; the sweeper finishes those first.
+   * Rows locked by a concurrent pass are skipped, so two passes never wait on each other.
+   */
+  async deleteExpired(olderThanDays: number, limit: number): Promise<DeletedRun[]> {
+    const deleted = await this.db.execute<{ id: string; monitor_id: string }>(sql`
+      delete from ${runs}
+      where id in (
+        select r.id
+        from ${runs} r
+        where r.started_at < now() - make_interval(days => ${olderThanDays})
+          and r.status <> 'running'
+          and exists (
+            select 1 from ${runs} newer
+            where newer.monitor_id = r.monitor_id
+              and (newer.started_at, newer.id) > (r.started_at, r.id)
+          )
+          and r.id not in (
+            select last_run_id from ${monitorState} where last_run_id is not null
+          )
+          and r.id not in (
+            select distinct on (monitor_id, kind) run_id
+            from ${alertDeliveries}
+            order by monitor_id, kind, created_at desc, id desc
+          )
+        order by r.started_at
+        limit ${limit}
+        for update of r skip locked
+      )
+      returning id, monitor_id
+    `);
+    return deleted.rows.map((row) => ({ id: row.id, monitorId: row.monitor_id }));
   }
 
   async get(runId: string): Promise<RunRow | null> {
@@ -152,6 +352,7 @@ export class RunRepository {
         id: runs.id,
         monitorId: runs.monitorId,
         trigger: runs.trigger,
+        jobId: runs.jobId,
         status: runs.status,
         startedAt: runs.startedAt,
         finishedAt: runs.finishedAt,
@@ -184,6 +385,35 @@ export interface StateUpdate {
   healthChanged: boolean;
 }
 
+type StateTransition<T> = (state: MonitorStateRow) => Promise<{ update: StateUpdate; value: T }>;
+
+async function lockState(tx: Transaction, monitorId: string): Promise<MonitorStateRow> {
+  await tx.insert(monitorState).values({ monitorId }).onConflictDoNothing();
+  const [state] = await tx
+    .select()
+    .from(monitorState)
+    .where(eq(monitorState.monitorId, monitorId))
+    .for('update');
+  if (!state) throw new Error(`monitor_state for ${monitorId} missing`);
+  return state;
+}
+
+async function writeState(tx: Transaction, monitorId: string, update: StateUpdate): Promise<void> {
+  await tx
+    .update(monitorState)
+    .set({
+      health: update.health,
+      consecutiveFailures: update.consecutiveFailures,
+      slowSteps: update.slowSteps,
+      lastRunId: update.lastRunId,
+      lastRunStatus: update.lastRunStatus,
+      lastRunAt: update.lastRunAt,
+      ...(update.healthChanged ? { healthChangedAt: update.lastRunAt } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(monitorState.monitorId, monitorId));
+}
+
 export class StateRepository {
   constructor(private readonly db: Database) {}
 
@@ -191,33 +421,49 @@ export class StateRepository {
    * Runs fn with the monitor's state row locked (SELECT ... FOR UPDATE), so two runs of the
    * same monitor finishing together cannot both decide to alert.
    */
-  async withLockedState<T>(
-    monitorId: string,
-    fn: (state: MonitorStateRow) => Promise<{ update: StateUpdate; value: T }>,
-  ): Promise<T> {
+  async withLockedState<T>(monitorId: string, fn: StateTransition<T>): Promise<T> {
     return this.db.transaction(async (tx) => {
-      await tx.insert(monitorState).values({ monitorId }).onConflictDoNothing();
-      const [state] = await tx
-        .select()
-        .from(monitorState)
-        .where(eq(monitorState.monitorId, monitorId))
-        .for('update');
-      if (!state) throw new Error(`monitor_state for ${monitorId} missing`);
-      const { update, value } = await fn(state);
-      await tx
-        .update(monitorState)
-        .set({
-          health: update.health,
-          consecutiveFailures: update.consecutiveFailures,
-          slowSteps: update.slowSteps,
-          lastRunId: update.lastRunId,
-          lastRunStatus: update.lastRunStatus,
-          lastRunAt: update.lastRunAt,
-          ...(update.healthChanged ? { healthChangedAt: update.lastRunAt } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(monitorState.monitorId, monitorId));
+      const { update, value } = await fn(await lockState(tx, monitorId));
+      await writeState(tx, monitorId, update);
       return value;
+    });
+  }
+
+  /**
+   * Stores a run's result and applies it to the monitor's state in one transaction, with the
+   * state row locked. A run's final status is written once: when the run is no longer
+   * "running" (the sweep marked it lost, a later attempt of its job superseded it, or it was
+   * deleted), nothing is written, fn is not called and null is returned. Storing and applying
+   * commit together, so an attempt cannot store its result and then apply it after a newer
+   * attempt of the same job has applied its own.
+   */
+  async applyRunResult<T>(
+    monitorId: string,
+    runId: string,
+    result: RunResult,
+    fn: StateTransition<T>,
+  ): Promise<{ run: RunRow; value: T } | null> {
+    return this.db.transaction(async (tx) => {
+      // State row before run row: deleting a monitor cascades to monitor_state before runs,
+      // and taking the two in the other order deadlocks with that delete.
+      const state = await lockState(tx, monitorId);
+      const [run] = await tx
+        .update(runs)
+        .set({
+          status: result.status,
+          finishedAt: new Date(result.finishedAt),
+          durationMs: result.durationMs,
+          detectedPlatform: result.journeys.find((j) => j.platform)?.platform?.detected ?? null,
+          failedStep: result.journeys.find((j) => j.failedStep)?.failedStep ?? null,
+          error: result.error?.message ?? null,
+          result,
+        })
+        .where(and(eq(runs.id, runId), eq(runs.status, 'running')))
+        .returning();
+      if (!run) return null;
+      const { update, value } = await fn(state);
+      await writeState(tx, monitorId, update);
+      return { run, value };
     });
   }
 }
@@ -263,4 +509,46 @@ export class AlertDeliveryRepository {
       .orderBy(desc(alertDeliveries.createdAt))
       .limit(limit);
   }
+
+  /**
+   * Deliveries of every monitor (or one), newest first, with the monitor's name. Keyset
+   * paginated on (created_at, id): `before` is the id of the last delivery of the previous
+   * page, compared at the database's full timestamp precision. A cursor whose delivery was
+   * deleted since (retention) ends the list.
+   */
+  async listPage(options: {
+    limit: number;
+    monitorId?: string | undefined;
+    before?: string | undefined;
+  }): Promise<AlertDeliveryPage> {
+    const rows = await this.db
+      .select({ delivery: alertDeliveries, monitorName: monitors.name })
+      .from(alertDeliveries)
+      .innerJoin(monitors, eq(monitors.id, alertDeliveries.monitorId))
+      .where(
+        and(
+          options.monitorId ? eq(alertDeliveries.monitorId, options.monitorId) : undefined,
+          options.before
+            ? sql`(${alertDeliveries.createdAt}, ${alertDeliveries.id}) < (
+                select prev.created_at, prev.id from ${alertDeliveries} prev
+                where prev.id = ${options.before})`
+            : undefined,
+        ),
+      )
+      .orderBy(desc(alertDeliveries.createdAt), desc(alertDeliveries.id))
+      .limit(options.limit + 1);
+    const items = rows
+      .slice(0, options.limit)
+      .map((row) => ({ ...row.delivery, monitorName: row.monitorName }));
+    const last = items.at(-1);
+    return { items, nextCursor: rows.length > options.limit && last ? last.id : null };
+  }
+}
+
+export type AlertLogEntry = AlertDeliveryRow & { monitorName: string };
+
+export interface AlertDeliveryPage {
+  items: AlertLogEntry[];
+  /** Pass as `before` to get the next (older) page. */
+  nextCursor: string | null;
 }

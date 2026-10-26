@@ -10,7 +10,8 @@ let cwd: string;
 let ok: FixtureStore;
 let broken: FixtureStore;
 
-function captureIo(): Io & { out: string[]; err: string[] } {
+/** Environment variables come only from the test, never from the shell running it. */
+function captureIo(env: Record<string, string> = {}): Io & { out: string[]; err: string[] } {
   const out: string[] = [];
   const err: string[] = [];
   return {
@@ -20,6 +21,7 @@ function captureIo(): Io & { out: string[]; err: string[] } {
     stderr: (s) => err.push(s),
     paint: plainPaint,
     cwd,
+    env,
   };
 }
 
@@ -117,5 +119,95 @@ monitors:
     const text = io.out.join('\n');
     expect(text).toContain('== ok store');
     expect(text).toContain('== broken store');
+  });
+});
+
+describe('checkout-sentinel --block-private-targets', () => {
+  // Without the flag the CLI reaches local stores (every test above runs against 127.0.0.1).
+  it('refuses private targets in run and check when asked to', async () => {
+    const io = captureIo();
+    const code = await runCli(
+      ['run', ok.productUrl, '--device', 'mobile', '--json', '--block-private-targets'],
+      io,
+    );
+    expect(code).toBe(3);
+    const result = RunResultSchema.parse(JSON.parse(io.out.join('\n')));
+    expect(result.status).toBe('error');
+    expect(result.error?.message).toBe(
+      'Target blocked: 127.0.0.1 is a loopback address (127.0.0.0/8)',
+    );
+    expect(result.journeys).toEqual([]);
+
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(
+      path.join(cwd, 'internal.yml'),
+      `version: 1
+monitors:
+  - name: metadata
+    url: http://169.254.169.254/latest/meta-data/
+`,
+    );
+    const checked = captureIo();
+    expect(
+      await runCli(['check', '--config', 'internal.yml', '--block-private-targets'], checked),
+    ).toBe(3);
+    expect(checked.out.join('\n')).toContain('cloud metadata address');
+  });
+
+  const okPort = () => new URL(ok.productUrl).port;
+  const blockedRun = async (env: Record<string, string>) => {
+    const io = captureIo(env);
+    const code = await runCli(
+      [
+        'run',
+        ok.productUrl,
+        '--device',
+        'mobile',
+        '--json',
+        '--step-timeout',
+        '3000',
+        '--block-private-targets',
+      ],
+      io,
+    );
+    return { code, io };
+  };
+
+  it('reads ALLOWED_TARGET_HOSTS and ALLOWED_TARGET_PORTS, as the worker does', async () => {
+    const { code, io } = await blockedRun({
+      ALLOWED_TARGET_HOSTS: '127.0.0.1',
+      ALLOWED_TARGET_PORTS: okPort(),
+    });
+    const result = RunResultSchema.parse(JSON.parse(io.out.join('\n')));
+    expect({ code, status: result.status, error: result.error }).toEqual({
+      code: 0,
+      status: 'passed',
+      error: undefined,
+    });
+  });
+
+  it('allows only ports 80 and 443 unless ALLOWED_TARGET_PORTS lists more', async () => {
+    const { code, io } = await blockedRun({ ALLOWED_TARGET_HOSTS: '127.0.0.1' });
+    expect(code).toBe(3);
+    const result = RunResultSchema.parse(JSON.parse(io.out.join('\n')));
+    expect(result.error?.message).toBe(
+      `Target blocked: Port ${okPort()} is not allowed; only ports 80, 443 are`,
+    );
+  });
+
+  it('ignores ALLOW_PRIVATE_TARGETS, since the flag asks for the guard', async () => {
+    const { code, io } = await blockedRun({ ALLOW_PRIVATE_TARGETS: 'true' });
+    expect(code).toBe(3);
+    const result = RunResultSchema.parse(JSON.parse(io.out.join('\n')));
+    expect(result.error?.message).toBe(
+      'Target blocked: 127.0.0.1 is a loopback address (127.0.0.0/8)',
+    );
+  });
+
+  it('exits 2 when an ALLOWED_TARGET_* setting is invalid', async () => {
+    const { code, io } = await blockedRun({ ALLOWED_TARGET_PORTS: 'http' });
+    expect(code).toBe(2);
+    expect(io.out).toEqual([]);
+    expect(io.err.join('\n')).toContain('ALLOWED_TARGET_PORTS');
   });
 });

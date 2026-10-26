@@ -8,6 +8,7 @@ import {
   runJourneys,
   type AlertChannel,
   type RunResult,
+  type TargetGuard,
 } from '@checkout-sentinel/core';
 import type {
   AlertDeliveryRepository,
@@ -19,6 +20,7 @@ import type {
 import { JourneyJobSchema, type JourneyJob } from '@checkout-sentinel/jobs';
 import { deliverAlert } from './alerting/deliver.js';
 import { evaluateTransition, type AlertDecision } from './alerting/state-machine.js';
+import { markMonitorArtifactsDir } from './artifacts.js';
 import type { BrowserPool } from './browser-pool.js';
 import type { WorkerMetrics } from './metrics.js';
 import type { StoreLock } from './store-lock.js';
@@ -33,6 +35,8 @@ export interface ProcessorDeps {
   metrics: WorkerMetrics;
   logger: Logger;
   removeScheduler: (monitorId: string) => Promise<void>;
+  /** SSRF policy for monitor URLs and alert channels, checked again at use time. */
+  targetGuard: TargetGuard;
   config: {
     artifactsDir: string;
     alertTimeoutMs: number;
@@ -46,7 +50,13 @@ export interface ProcessorDeps {
 
 export type JobOutcome =
   | { outcome: 'skipped'; reason: string }
-  | { outcome: 'completed'; runId: string; status: RunResult['status']; alerts: string[] };
+  | { outcome: 'completed'; runId: string; status: RunResult['status']; alerts: string[] }
+  /**
+   * The result arrived after its run was marked lost (superseded by a later attempt of the job,
+   * or swept) or deleted; it changed nothing. BullMQ records this outcome only when this worker
+   * still held the job's lock; otherwise BullMQ refuses the completion.
+   */
+  | { outcome: 'discarded'; runId: string; status: RunResult['status']; reason: string };
 
 /** Delay before retrying a job whose store is busy; jittered so waiting jobs spread out. */
 function lockRetryDelayMs(): number {
@@ -91,6 +101,7 @@ async function sendAlerts(
           timeoutMs: deps.config.alertTimeoutMs,
           attempts: 2,
           userAgent: `${TOOL_NAME}/${VERSION} (+${PROJECT_URL})`,
+          targetGuard: deps.targetGuard,
         },
       );
       deps.metrics.alerts.inc({
@@ -150,8 +161,21 @@ export async function processJourneyJob(
   }
 
   deps.metrics.activeJourneys.inc();
-  const run = await deps.runs.start(monitor.id, data.trigger);
+  const { run, superseded } = await deps.runs.start(monitor.id, data.trigger, job.id);
+  for (const runId of superseded) {
+    deps.metrics.runsSuperseded.inc();
+    log.warn(
+      { runId, retryRunId: run.id },
+      'run marked lost: BullMQ ran its job again before it finished',
+    );
+  }
   try {
+    const artifactsDir = path.join(deps.config.artifactsDir, monitor.id);
+    // Without the marker the directory is only kept after its monitor is deleted, so a failure
+    // to write it must not fail the run.
+    await markMonitorArtifactsDir(artifactsDir).catch((error: unknown) =>
+      log.warn({ err: error }, 'could not mark the artifacts directory'),
+    );
     const result = await (deps.run ?? runJourneys)({
       url: monitor.url,
       platform: monitor.platform,
@@ -159,7 +183,8 @@ export async function processJourneyJob(
       slowStepMs: monitor.slowStepMs,
       runId: run.id,
       browser: await deps.browsers.get(),
-      artifactsDir: path.join(deps.config.artifactsDir, monitor.id),
+      targetGuard: deps.targetGuard,
+      artifactsDir,
       timeouts: {
         navigationMs: deps.config.navigationTimeoutMs,
         stepMs: deps.config.stepTimeoutMs,
@@ -168,10 +193,7 @@ export async function processJourneyJob(
         ? { userAgentContactUrl: deps.config.userAgentContactUrl }
         : {}),
     });
-    await deps.runs.finish(run.id, result);
-    deps.metrics.observeRun(result, data.trigger);
-
-    const decisions = await deps.state.withLockedState(monitor.id, async (state) => {
+    const applied = await deps.state.applyRunResult(monitor.id, run.id, result, async (state) => {
       const transition = evaluateTransition(
         {
           health: state.health,
@@ -192,8 +214,22 @@ export async function processJourneyJob(
         value: transition.alerts,
       };
     });
+    if (!applied) {
+      // The run already has a final status: a later attempt of this job superseded it, the
+      // sweep marked it lost, or it was deleted. The first final status stands. A late result
+      // can be older than one a later attempt has applied, so it must not move the alert state
+      // or send alerts.
+      const current = await deps.runs.get(run.id);
+      const reason = current
+        ? `run was already marked ${current.status}${current.error ? ` (${current.error})` : ''}`
+        : 'run was deleted';
+      deps.metrics.discardedResults.inc();
+      log.warn({ runId: run.id, status: result.status, reason }, 'late journey result discarded');
+      return { outcome: 'discarded', runId: run.id, status: result.status, reason };
+    }
+    deps.metrics.observeRun(result, data.trigger);
 
-    const alerts = await sendAlerts(deps, monitor, run.id, result, decisions);
+    const alerts = await sendAlerts(deps, monitor, run.id, result, applied.value);
     log.info(
       { runId: run.id, status: result.status, durationMs: result.durationMs, alerts },
       'journey run finished',

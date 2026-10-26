@@ -61,6 +61,8 @@ describe.skipIf(!services.available)('worker end to end (Postgres + Redis + Chro
         ARTIFACTS_DIR: artifacts,
         STEP_TIMEOUT_MS: '3000',
         LOG_LEVEL: 'silent',
+        // Fixture stores and the webhook receiver listen on 127.0.0.1.
+        ALLOW_PRIVATE_TARGETS: 'true',
       }),
       pino({ level: 'silent' }),
     );
