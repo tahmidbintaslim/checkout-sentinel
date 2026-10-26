@@ -7,6 +7,19 @@ All notable changes are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Read-only dashboard demo (`vite build --mode demo`, `pnpm --filter @checkout-sentinel/web demo`):
+  the dashboard reads sample data from static JSON and answers every write with 403. The data
+  comes from `demo:data`, which runs real journeys against the fixture stores (one store fails on
+  mobile for three runs, then recovers) and derives status and alerts with the worker's state
+  machine. A GitHub Pages workflow (`demo-pages.yml`) and `apps/web/vercel.json` publish it.
+
+### Changed
+
+- The dashboard's router and the demo data follow the Vite base path (`--base`). The API client
+  still calls `/api` on the same origin.
+
 ## [0.2.0] - 2026-10-26
 
 Result schema version: 1 (unchanged; new step details are additive).

@@ -1,0 +1,36 @@
+{
+  "id": "demo-slow",
+  "name": "Demo Tee, slow checkout (Shopify)",
+  "url": "https://demo-slow.example/products/demo-tee",
+  "platform": "auto",
+  "devices": [
+    "desktop",
+    "mobile"
+  ],
+  "schedule": "0 * * * *",
+  "timezone": "UTC",
+  "slowStepMs": 1000,
+  "alertAfterFailures": 2,
+  "alerts": [
+    {
+      "type": "webhook",
+      "url": "https://hooks.example/checkout-alerts",
+      "hasSecret": false
+    }
+  ],
+  "enabled": true,
+  "createdAt": "2026-10-26T03:00:00.000Z",
+  "updatedAt": "2026-10-26T03:00:00.000Z",
+  "status": {
+    "health": "passing",
+    "consecutiveFailures": 0,
+    "slowSteps": [
+      "desktop:go_to_checkout",
+      "mobile:go_to_checkout"
+    ],
+    "lastRunId": "3ce8899c-98a9-4ff4-bbf6-fd0ac9979524",
+    "lastRunStatus": "passed",
+    "lastRunAt": "2026-10-26T06:00:04.396Z",
+    "healthChangedAt": "2026-10-26T04:00:04.438Z"
+  }
+}

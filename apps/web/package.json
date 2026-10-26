@@ -10,7 +10,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "screenshots": "node --experimental-strip-types scripts/screenshots.ts"
+    "screenshots": "node --experimental-strip-types scripts/screenshots.ts",
+    "demo:data": "node --experimental-strip-types scripts/demo-data.ts",
+    "build:demo": "vite build --mode demo",
+    "demo": "vite build --mode demo && vite preview --mode demo --outDir dist-demo"
   },
   "dependencies": {
     "@checkout-sentinel/core": "workspace:*",

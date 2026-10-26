@@ -1,0 +1,251 @@
+{
+  "id": "64991f8e-b580-4018-b680-d23bfeea941a",
+  "monitorId": "demo-hoodie",
+  "trigger": "schedule",
+  "status": "passed",
+  "startedAt": "2026-10-26T00:00:00.000Z",
+  "finishedAt": "2026-10-26T00:00:01.375Z",
+  "durationMs": 1375,
+  "detectedPlatform": "woocommerce",
+  "failedStep": null,
+  "error": null,
+  "artifacts": [],
+  "result": {
+    "schemaVersion": 1,
+    "tool": {
+      "name": "checkout-sentinel",
+      "version": "0.2.0"
+    },
+    "runId": "64991f8e-b580-4018-b680-d23bfeea941a",
+    "url": "https://demo-hoodie.example/product/demo-hoodie/",
+    "requestedPlatform": "auto",
+    "startedAt": "2026-10-26T00:00:00.000Z",
+    "finishedAt": "2026-10-26T00:00:01.375Z",
+    "durationMs": 1375,
+    "status": "passed",
+    "summary": {
+      "journeys": 2,
+      "passed": 2,
+      "failed": 0,
+      "slowSteps": 0
+    },
+    "journeys": [
+      {
+        "device": "desktop",
+        "status": "passed",
+        "startedAt": "2026-10-26T00:00:00.000Z",
+        "durationMs": 702,
+        "platform": {
+          "detected": "woocommerce",
+          "used": "woocommerce",
+          "confidence": "high",
+          "signals": [
+            "meta[name=\"generator\"] mentions WooCommerce",
+            "wc_add_to_cart_params or woocommerce_params is defined",
+            "body has class woocommerce or woocommerce-page",
+            "button.single_add_to_cart_button"
+          ]
+        },
+        "steps": [
+          {
+            "name": "open_product",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:00.197Z",
+            "durationMs": 126,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-hoodie.example/product/demo-hoodie/",
+              "detectedPlatform": "woocommerce",
+              "platformUsed": "woocommerce",
+              "confidence": "high"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "find_add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:00.324Z",
+            "durationMs": 128,
+            "slow": false,
+            "details": {
+              "strategy": "woo-single-add-to-cart-button",
+              "matched": "button.single_add_to_cart_button"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:00.452Z",
+            "durationMs": 102,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartRequestSeen": true,
+              "cartRequestStatus": 200,
+              "cartRequestUrl": "https://demo-hoodie.example/product/demo-hoodie/"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "verify_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:00.554Z",
+            "durationMs": 13,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartAfter": 1,
+              "source": "Store API /wp-json/wc/store/v1/cart"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "go_to_checkout",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:00.567Z",
+            "durationMs": 67,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-hoodie.example/checkout/"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "checkout_renders",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:00.634Z",
+            "durationMs": 48,
+            "slow": false,
+            "details": {
+              "finalUrl": "https://demo-hoodie.example/checkout/"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          }
+        ]
+      },
+      {
+        "device": "mobile",
+        "status": "passed",
+        "startedAt": "2026-10-26T00:00:00.703Z",
+        "durationMs": 672,
+        "platform": {
+          "detected": "woocommerce",
+          "used": "woocommerce",
+          "confidence": "high",
+          "signals": [
+            "meta[name=\"generator\"] mentions WooCommerce",
+            "wc_add_to_cart_params or woocommerce_params is defined",
+            "body has class woocommerce or woocommerce-page",
+            "button.single_add_to_cart_button"
+          ]
+        },
+        "steps": [
+          {
+            "name": "open_product",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:00.869Z",
+            "durationMs": 121,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-hoodie.example/product/demo-hoodie/",
+              "detectedPlatform": "woocommerce",
+              "platformUsed": "woocommerce",
+              "confidence": "high"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "find_add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:00.990Z",
+            "durationMs": 146,
+            "slow": false,
+            "details": {
+              "strategy": "woo-single-add-to-cart-button",
+              "matched": "button.single_add_to_cart_button"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:01.137Z",
+            "durationMs": 98,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartRequestSeen": true,
+              "cartRequestStatus": 200,
+              "cartRequestUrl": "https://demo-hoodie.example/product/demo-hoodie/"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "verify_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:01.235Z",
+            "durationMs": 11,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartAfter": 1,
+              "source": "Store API /wp-json/wc/store/v1/cart"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "go_to_checkout",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:01.245Z",
+            "durationMs": 63,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-hoodie.example/checkout/"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "checkout_renders",
+            "status": "passed",
+            "startedAt": "2026-10-26T00:00:01.309Z",
+            "durationMs": 51,
+            "slow": false,
+            "details": {
+              "finalUrl": "https://demo-hoodie.example/checkout/"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,251 @@
+{
+  "id": "1e797d9e-0393-409d-a534-412618c88ef7",
+  "monitorId": "demo-slow",
+  "trigger": "schedule",
+  "status": "passed",
+  "startedAt": "2026-10-26T04:00:00.000Z",
+  "finishedAt": "2026-10-26T04:00:04.438Z",
+  "durationMs": 4438,
+  "detectedPlatform": "shopify",
+  "failedStep": null,
+  "error": null,
+  "artifacts": [],
+  "result": {
+    "schemaVersion": 1,
+    "tool": {
+      "name": "checkout-sentinel",
+      "version": "0.2.0"
+    },
+    "runId": "1e797d9e-0393-409d-a534-412618c88ef7",
+    "url": "https://demo-slow.example/products/demo-tee",
+    "requestedPlatform": "auto",
+    "startedAt": "2026-10-26T04:00:00.000Z",
+    "finishedAt": "2026-10-26T04:00:04.438Z",
+    "durationMs": 4438,
+    "status": "passed",
+    "summary": {
+      "journeys": 2,
+      "passed": 2,
+      "failed": 0,
+      "slowSteps": 2
+    },
+    "journeys": [
+      {
+        "device": "desktop",
+        "status": "passed",
+        "startedAt": "2026-10-26T04:00:00.000Z",
+        "durationMs": 2257,
+        "platform": {
+          "detected": "shopify",
+          "used": "shopify",
+          "confidence": "high",
+          "signals": [
+            "window.Shopify is defined",
+            "meta[name=\"shopify-checkout-api-token\"] or shopify-digital-wallet",
+            "Shopify response headers (x-shopid, x-shopify-stage, powered-by: Shopify)",
+            "form[action*=\"/cart/add\"]"
+          ]
+        },
+        "steps": [
+          {
+            "name": "open_product",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:00.203Z",
+            "durationMs": 114,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-slow.example/products/demo-tee",
+              "detectedPlatform": "shopify",
+              "platformUsed": "shopify",
+              "confidence": "high"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "find_add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:00.317Z",
+            "durationMs": 166,
+            "slow": false,
+            "details": {
+              "strategy": "shopify-cart-add-form-submit",
+              "matched": "submit button inside form[action*=\"/cart/add\"]"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:00.484Z",
+            "durationMs": 132,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartRequestSeen": true,
+              "cartRequestStatus": 302,
+              "cartRequestUrl": "https://demo-slow.example/cart/add"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "verify_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:00.616Z",
+            "durationMs": 5,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartAfter": 1,
+              "source": "/cart.js"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "go_to_checkout",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:00.621Z",
+            "durationMs": 1573,
+            "slow": true,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-slow.example/checkouts/cn/fixture-checkout-xyz"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "checkout_renders",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:02.194Z",
+            "durationMs": 38,
+            "slow": false,
+            "details": {
+              "finalUrl": "https://demo-slow.example/checkouts/cn/fixture-checkout-xyz"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          }
+        ]
+      },
+      {
+        "device": "mobile",
+        "status": "passed",
+        "startedAt": "2026-10-26T04:00:02.257Z",
+        "durationMs": 2181,
+        "platform": {
+          "detected": "shopify",
+          "used": "shopify",
+          "confidence": "high",
+          "signals": [
+            "window.Shopify is defined",
+            "meta[name=\"shopify-checkout-api-token\"] or shopify-digital-wallet",
+            "Shopify response headers (x-shopid, x-shopify-stage, powered-by: Shopify)",
+            "form[action*=\"/cart/add\"]"
+          ]
+        },
+        "steps": [
+          {
+            "name": "open_product",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:02.464Z",
+            "durationMs": 114,
+            "slow": false,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-slow.example/products/demo-tee",
+              "detectedPlatform": "shopify",
+              "platformUsed": "shopify",
+              "confidence": "high"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "find_add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:02.578Z",
+            "durationMs": 107,
+            "slow": false,
+            "details": {
+              "strategy": "shopify-cart-add-form-submit",
+              "matched": "submit button inside form[action*=\"/cart/add\"]"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "add_to_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:02.685Z",
+            "durationMs": 120,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartRequestSeen": true,
+              "cartRequestStatus": 302,
+              "cartRequestUrl": "https://demo-slow.example/cart/add"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "verify_cart",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:02.805Z",
+            "durationMs": 8,
+            "slow": false,
+            "details": {
+              "cartBefore": 0,
+              "cartAfter": 1,
+              "source": "/cart.js"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "go_to_checkout",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:02.812Z",
+            "durationMs": 1568,
+            "slow": true,
+            "details": {
+              "httpStatus": 200,
+              "finalUrl": "https://demo-slow.example/checkouts/cn/fixture-checkout-xyz"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          },
+          {
+            "name": "checkout_renders",
+            "status": "passed",
+            "startedAt": "2026-10-26T04:00:04.381Z",
+            "durationMs": 40,
+            "slow": false,
+            "details": {
+              "finalUrl": "https://demo-slow.example/checkouts/cn/fixture-checkout-xyz"
+            },
+            "consoleErrors": [],
+            "pageErrors": [],
+            "failedRequests": []
+          }
+        ]
+      }
+    ]
+  }
+}

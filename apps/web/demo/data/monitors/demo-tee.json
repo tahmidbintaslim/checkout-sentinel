@@ -1,0 +1,33 @@
+{
+  "id": "demo-tee",
+  "name": "Demo Tee (Shopify)",
+  "url": "https://demo-tee.example/products/demo-tee",
+  "platform": "auto",
+  "devices": [
+    "desktop",
+    "mobile"
+  ],
+  "schedule": "0 * * * *",
+  "timezone": "UTC",
+  "slowStepMs": 8000,
+  "alertAfterFailures": 2,
+  "alerts": [
+    {
+      "type": "webhook",
+      "url": "https://hooks.example/checkout-alerts",
+      "hasSecret": false
+    }
+  ],
+  "enabled": true,
+  "createdAt": "2026-10-25T23:00:00.000Z",
+  "updatedAt": "2026-10-25T23:00:00.000Z",
+  "status": {
+    "health": "passing",
+    "consecutiveFailures": 0,
+    "slowSteps": [],
+    "lastRunId": "23439b81-4904-4d52-a5a1-aa52ad67a112",
+    "lastRunStatus": "passed",
+    "lastRunAt": "2026-10-26T06:00:01.345Z",
+    "healthChangedAt": "2026-10-26T05:00:01.531Z"
+  }
+}

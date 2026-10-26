@@ -1,0 +1,104 @@
+[
+  {
+    "id": "demo-tee",
+    "name": "Demo Tee (Shopify)",
+    "url": "https://demo-tee.example/products/demo-tee",
+    "platform": "auto",
+    "devices": [
+      "desktop",
+      "mobile"
+    ],
+    "schedule": "0 * * * *",
+    "timezone": "UTC",
+    "slowStepMs": 8000,
+    "alertAfterFailures": 2,
+    "alerts": [
+      {
+        "type": "webhook",
+        "url": "https://hooks.example/checkout-alerts",
+        "hasSecret": false
+      }
+    ],
+    "enabled": true,
+    "createdAt": "2026-10-25T23:00:00.000Z",
+    "updatedAt": "2026-10-25T23:00:00.000Z",
+    "status": {
+      "health": "passing",
+      "consecutiveFailures": 0,
+      "slowSteps": [],
+      "lastRunId": "23439b81-4904-4d52-a5a1-aa52ad67a112",
+      "lastRunStatus": "passed",
+      "lastRunAt": "2026-10-26T06:00:01.345Z",
+      "healthChangedAt": "2026-10-26T05:00:01.531Z"
+    }
+  },
+  {
+    "id": "demo-hoodie",
+    "name": "Demo Hoodie (WooCommerce)",
+    "url": "https://demo-hoodie.example/product/demo-hoodie/",
+    "platform": "auto",
+    "devices": [
+      "desktop",
+      "mobile"
+    ],
+    "schedule": "0 * * * *",
+    "timezone": "UTC",
+    "slowStepMs": 8000,
+    "alertAfterFailures": 2,
+    "alerts": [
+      {
+        "type": "webhook",
+        "url": "https://hooks.example/checkout-alerts",
+        "hasSecret": false
+      }
+    ],
+    "enabled": true,
+    "createdAt": "2026-10-25T23:00:00.000Z",
+    "updatedAt": "2026-10-25T23:00:00.000Z",
+    "status": {
+      "health": "passing",
+      "consecutiveFailures": 0,
+      "slowSteps": [],
+      "lastRunId": "21178b2c-72df-48fb-8541-49d0a5b3f04e",
+      "lastRunStatus": "passed",
+      "lastRunAt": "2026-10-26T06:00:01.483Z",
+      "healthChangedAt": "2026-10-26T00:00:01.375Z"
+    }
+  },
+  {
+    "id": "demo-slow",
+    "name": "Demo Tee, slow checkout (Shopify)",
+    "url": "https://demo-slow.example/products/demo-tee",
+    "platform": "auto",
+    "devices": [
+      "desktop",
+      "mobile"
+    ],
+    "schedule": "0 * * * *",
+    "timezone": "UTC",
+    "slowStepMs": 1000,
+    "alertAfterFailures": 2,
+    "alerts": [
+      {
+        "type": "webhook",
+        "url": "https://hooks.example/checkout-alerts",
+        "hasSecret": false
+      }
+    ],
+    "enabled": true,
+    "createdAt": "2026-10-26T03:00:00.000Z",
+    "updatedAt": "2026-10-26T03:00:00.000Z",
+    "status": {
+      "health": "passing",
+      "consecutiveFailures": 0,
+      "slowSteps": [
+        "desktop:go_to_checkout",
+        "mobile:go_to_checkout"
+      ],
+      "lastRunId": "3ce8899c-98a9-4ff4-bbf6-fd0ac9979524",
+      "lastRunStatus": "passed",
+      "lastRunAt": "2026-10-26T06:00:04.396Z",
+      "healthChangedAt": "2026-10-26T04:00:04.438Z"
+    }
+  }
+]

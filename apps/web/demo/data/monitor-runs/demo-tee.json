@@ -1,0 +1,89 @@
+{
+  "items": [
+    {
+      "id": "23439b81-4904-4d52-a5a1-aa52ad67a112",
+      "monitorId": "demo-tee",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T06:00:00.000Z",
+      "finishedAt": "2026-10-26T06:00:01.345Z",
+      "durationMs": 1345,
+      "detectedPlatform": "shopify",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "87cfe970-71c6-4db9-a67a-2925844609b9",
+      "monitorId": "demo-tee",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T05:00:00.000Z",
+      "finishedAt": "2026-10-26T05:00:01.531Z",
+      "durationMs": 1531,
+      "detectedPlatform": "shopify",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "f929899f-67fa-4264-b29d-26a5b6e398eb",
+      "monitorId": "demo-tee",
+      "trigger": "schedule",
+      "status": "failed",
+      "startedAt": "2026-10-26T04:00:00.000Z",
+      "finishedAt": "2026-10-26T04:00:03.264Z",
+      "durationMs": 3264,
+      "detectedPlatform": "shopify",
+      "failedStep": "find_add_to_cart",
+      "error": null
+    },
+    {
+      "id": "149825de-1922-4b1b-8aa2-b7b8ed625ffa",
+      "monitorId": "demo-tee",
+      "trigger": "schedule",
+      "status": "failed",
+      "startedAt": "2026-10-26T03:00:00.000Z",
+      "finishedAt": "2026-10-26T03:00:03.412Z",
+      "durationMs": 3412,
+      "detectedPlatform": "shopify",
+      "failedStep": "find_add_to_cart",
+      "error": null
+    },
+    {
+      "id": "caf0a5f1-1c78-49f1-916b-024249103b44",
+      "monitorId": "demo-tee",
+      "trigger": "schedule",
+      "status": "failed",
+      "startedAt": "2026-10-26T02:00:00.000Z",
+      "finishedAt": "2026-10-26T02:00:03.359Z",
+      "durationMs": 3359,
+      "detectedPlatform": "shopify",
+      "failedStep": "find_add_to_cart",
+      "error": null
+    },
+    {
+      "id": "f7791c1b-aeb4-41e5-8fba-79b9d9c8a56b",
+      "monitorId": "demo-tee",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T01:00:00.000Z",
+      "finishedAt": "2026-10-26T01:00:01.387Z",
+      "durationMs": 1387,
+      "detectedPlatform": "shopify",
+      "failedStep": null,
+      "error": null
+    },
+    {
+      "id": "9bf1d4cd-1f48-4ecf-b3e1-a30433092a7f",
+      "monitorId": "demo-tee",
+      "trigger": "schedule",
+      "status": "passed",
+      "startedAt": "2026-10-26T00:00:00.000Z",
+      "finishedAt": "2026-10-26T00:00:01.539Z",
+      "durationMs": 1539,
+      "detectedPlatform": "shopify",
+      "failedStep": null,
+      "error": null
+    }
+  ],
+  "nextCursor": null
+}

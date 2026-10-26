@@ -6,6 +6,7 @@ import TokenForm from './components/TokenForm.vue';
 
 const main = ref<HTMLElement | null>(null);
 const router = useRouter();
+const demo = import.meta.env.MODE === 'demo';
 
 // After moving to another page, start keyboard and screen reader users at its content.
 router.afterEach((to, from) => {
@@ -28,13 +29,17 @@ router.afterEach((to, from) => {
           <li>
             <RouterLink to="/alerts" class="nav-link" active-class="active">Alert log</RouterLink>
           </li>
-          <li>
+          <li v-if="!demo">
             <RouterLink to="/settings" class="nav-link" active-class="active">API token</RouterLink>
           </li>
         </ul>
       </nav>
     </div>
   </header>
+  <p v-if="demo" class="demo-banner notice notice-info" role="note">
+    Read-only demo. The runs are real journeys against local test stores, shown on an hourly
+    timeline; no real shop is checked and nothing you change is saved.
+  </p>
 
   <main id="main" ref="main" tabindex="-1">
     <section v-if="authState.required" class="page auth" aria-labelledby="auth-title">
@@ -55,6 +60,11 @@ router.afterEach((to, from) => {
 </template>
 
 <style scoped>
+.demo-banner {
+  max-width: var(--content-width);
+  margin: var(--space-2) auto 0;
+  padding: var(--space-2) var(--space-4);
+}
 .site-header {
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-divider);
