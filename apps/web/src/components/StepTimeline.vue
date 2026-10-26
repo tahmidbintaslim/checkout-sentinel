@@ -2,7 +2,7 @@
 import { computed, useId } from 'vue';
 import type { JourneyResult, StepResult } from '@checkout-sentinel/core/schemas';
 import type { RunArtifact } from '../api/types';
-import { capitalize, formatDuration, stepLabel } from '../lib/format';
+import { capitalize, formatDuration, platformName, stepLabel } from '../lib/format';
 import ArtifactImage from './ArtifactImage.vue';
 import StatusBadge from './StatusBadge.vue';
 import TraceDownload from './TraceDownload.vue';
@@ -57,7 +57,8 @@ const stepStatus = (step: StepResult) =>
       <StatusBadge :status="journey.status" />
       <span class="muted">{{ formatDuration(journey.durationMs) }}</span>
       <span v-if="journey.platform" class="muted small">
-        Platform {{ journey.platform.used }} ({{ journey.platform.confidence }} confidence)
+        Platform {{ platformName(journey.platform.used) }} ({{ journey.platform.confidence }}
+        confidence)
       </span>
       <TraceDownload v-if="trace" :run-id="runId" :name="trace.name" :device="journey.device" />
     </div>

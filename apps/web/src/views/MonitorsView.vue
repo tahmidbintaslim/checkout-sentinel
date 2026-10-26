@@ -7,7 +7,7 @@ import TimeAgo from '../components/TimeAgo.vue';
 import { useApi } from '../composables/api';
 import { usePoll } from '../composables/poll';
 import { usePageTitle } from '../composables/title';
-import { capitalize } from '../lib/format';
+import { capitalize, platformName } from '../lib/format';
 
 usePageTitle('Monitors');
 const api = useApi();
@@ -27,7 +27,7 @@ onMounted(load);
 usePoll(load, 15_000);
 
 const platformLabel = (platform: Monitor['platform']) =>
-  platform === 'auto' ? 'Detect' : platform === 'woocommerce' ? 'WooCommerce' : 'Shopify';
+  platform === 'auto' ? 'Detect' : platformName(platform);
 </script>
 
 <template>

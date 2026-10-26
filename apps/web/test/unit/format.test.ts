@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, relativeTime, stepLabel } from '../../src/lib/format';
+import { formatDuration, platformName, relativeTime, stepLabel } from '../../src/lib/format';
 
 describe('formatDuration', () => {
   it('matches the CLI: milliseconds under a second, then seconds with two decimals', () => {
@@ -25,5 +25,13 @@ describe('stepLabel', () => {
   it('turns step names into words', () => {
     expect(stepLabel('find_add_to_cart')).toBe('Find add to cart');
     expect(stepLabel('checkout_renders')).toBe('Checkout renders');
+  });
+});
+
+describe('platformName', () => {
+  it('writes platforms the way their makers do', () => {
+    expect(platformName('shopify')).toBe('Shopify');
+    expect(platformName('woocommerce')).toBe('WooCommerce');
+    expect(platformName('unknown')).toBe('Unknown');
   });
 });

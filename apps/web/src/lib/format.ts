@@ -39,3 +39,9 @@ export function stepLabel(name: string): string {
 export function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+const PLATFORM_NAMES: Record<string, string> = { shopify: 'Shopify', woocommerce: 'WooCommerce' };
+
+export function platformName(platform: string): string {
+  return PLATFORM_NAMES[platform] ?? capitalize(platform);
+}

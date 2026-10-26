@@ -7,7 +7,7 @@ import StepTimeline from '../components/StepTimeline.vue';
 import { useApi } from '../composables/api';
 import { usePoll } from '../composables/poll';
 import { usePageTitle } from '../composables/title';
-import { capitalize, formatDateTime, formatDuration, stepLabel } from '../lib/format';
+import { capitalize, formatDateTime, formatDuration, platformName, stepLabel } from '../lib/format';
 
 const props = defineProps<{ id: string }>();
 
@@ -98,7 +98,7 @@ usePoll(async () => {
           <dd>{{ run.finishedAt ? formatDateTime(run.finishedAt) : 'Not yet' }}</dd>
           <template v-if="run.detectedPlatform">
             <dt>Detected platform</dt>
-            <dd>{{ run.detectedPlatform }}</dd>
+            <dd>{{ platformName(run.detectedPlatform) }}</dd>
           </template>
           <template v-if="run.failedStep">
             <dt>First failed step</dt>

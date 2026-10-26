@@ -9,7 +9,7 @@ import TimeAgo from '../components/TimeAgo.vue';
 import { useApi } from '../composables/api';
 import { usePoll } from '../composables/poll';
 import { usePageTitle } from '../composables/title';
-import { capitalize, formatDateTime, formatDuration, stepLabel } from '../lib/format';
+import { capitalize, formatDateTime, formatDuration, platformName, stepLabel } from '../lib/format';
 
 const props = defineProps<{ id: string }>();
 
@@ -272,7 +272,13 @@ const channelLabel = (channel: Monitor['alerts'][number]) =>
         <h2 id="settings-title">Settings</h2>
         <dl class="definition-list">
           <dt>Platform</dt>
-          <dd>{{ monitor.platform === 'auto' ? 'Detected from the page' : monitor.platform }}</dd>
+          <dd>
+            {{
+              monitor.platform === 'auto'
+                ? 'Detected from the page'
+                : platformName(monitor.platform)
+            }}
+          </dd>
           <dt>Devices</dt>
           <dd>{{ monitor.devices.map(capitalize).join(', ') }}</dd>
           <dt>Schedule</dt>
