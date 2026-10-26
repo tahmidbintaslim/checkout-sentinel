@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import TokenForm from '../components/TokenForm.vue';
-import { tokenChanged } from '../auth/state';
+import { authState } from '../auth/state';
 import { usePageTitle } from '../composables/title';
 
 usePageTitle('API token');
+
+// This page holds no API data, so it only hides the 401 prompt. tokenChanged() would remount
+// it and drop the form's confirmation and focus.
+const tokenSaved = () => {
+  authState.required = false;
+};
 </script>
 
 <template>
@@ -17,7 +23,7 @@ usePageTitle('API token');
         Without <code>API_TOKEN</code> the API accepts requests without a token and you can leave
         this empty.
       </p>
-      <TokenForm @saved="tokenChanged" @cleared="tokenChanged" />
+      <TokenForm @saved="tokenSaved" />
     </div>
     <div class="card">
       <h2>API</h2>

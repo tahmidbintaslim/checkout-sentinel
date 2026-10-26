@@ -7,7 +7,7 @@ import { authState, markUnauthorized } from '../../src/auth/state';
 import { TOKEN_STORAGE_KEY, readToken } from '../../src/auth/token';
 import { apiKey } from '../../src/composables/api';
 import { createAppRouter } from '../../src/router';
-import { sampleMonitor } from './helpers';
+import { fakeApi, mountApp, sampleMonitor } from './helpers';
 
 const TOKEN = 'e2e-api-token-0123456789';
 
@@ -55,5 +55,28 @@ describe('API token prompt', () => {
     expect(wrapper.text()).not.toContain('The API needs a token');
     expect(wrapper.get('tbody').text()).toContain('Demo tee');
     expect(seen).toEqual([null, `Bearer ${TOKEN}`]);
+  });
+
+  it('confirms a token saved or forgotten on the API token page', async () => {
+    authState.required = true;
+    const { wrapper } = await mountApp('/settings', fakeApi());
+    const form = () => wrapper.get('div.page form');
+    const save = form().get('button[type="submit"]');
+    await form().get('input[type="password"]').setValue('token-0123456789');
+    (save.element as HTMLButtonElement).focus();
+    await form().trigger('submit');
+    await flushPromises();
+
+    expect(form().get('[role="status"]').text()).toBe('Token saved for this tab.');
+    expect(document.activeElement).toBe(save.element);
+    // The 401 prompt above the page goes away once a token is saved here too.
+    expect(wrapper.text()).not.toContain('The API needs a token');
+
+    await form()
+      .findAll('button')
+      .find((button) => button.text() === 'Forget token')!
+      .trigger('click');
+    await flushPromises();
+    expect(form().get('[role="status"]').text()).toBe('Token removed from this tab.');
   });
 });
