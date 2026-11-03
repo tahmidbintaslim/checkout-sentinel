@@ -4,7 +4,9 @@
 
 Please report security issues privately through
 [GitHub security advisories](https://github.com/tahmidbintaslim/checkout-sentinel/security/advisories/new)
-rather than a public issue. Include steps to reproduce and the version or commit. You should get
+rather than a public issue, or by email to
+[tahmidbintaslimrafi@gmail.com](mailto:tahmidbintaslimrafi@gmail.com). Include steps to reproduce
+and the version or commit. You should get
 an acknowledgement within a few days. This is a small open-source project with no bug bounty.
 
 ## Supported versions
