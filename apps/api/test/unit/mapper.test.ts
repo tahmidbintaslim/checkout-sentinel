@@ -59,6 +59,20 @@ describe('loadApiConfig', () => {
     expect(() => loadApiConfig({})).toThrow(/DATABASE_URL/);
   });
 
+  it('refuses the public scanner without Turnstile keys', () => {
+    expect(() => loadApiConfig({ DATABASE_URL: 'postgres://x', SCANNER_ENABLED: 'true' })).toThrow(
+      /TURNSTILE/,
+    );
+    expect(
+      loadApiConfig({
+        DATABASE_URL: 'postgres://x',
+        SCANNER_ENABLED: 'true',
+        TURNSTILE_SITE_KEY: 'site',
+        TURNSTILE_SECRET_KEY: 'secret',
+      }),
+    ).toMatchObject({ SCANNER_ENABLED: true, SCAN_RATE_LIMIT_PER_HOUR: 5, SCAN_QUEUE_LIMIT: 20 });
+  });
+
   it('treats empty variables as unset (compose passes ${VAR:-} as "")', () => {
     const config = loadApiConfig({ DATABASE_URL: 'postgres://x', API_TOKEN: '', LOG_LEVEL: '' });
     expect(config.API_TOKEN).toBeUndefined();

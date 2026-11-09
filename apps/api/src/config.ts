@@ -23,6 +23,25 @@ const EnvSchema = TargetPolicyEnvSchema.extend({
   /** Directory of the built dashboard. Default: apps/web/dist in this repository. */
   DASHBOARD_DIR: z.string().min(1).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  /** Public scanner: POST /scans and GET /scans/:id without the API token. Off by default. */
+  SCANNER_ENABLED: booleanFromEnv.default(false),
+  /** Cloudflare Turnstile keys; required with the scanner, since every scan runs a browser. */
+  TURNSTILE_SITE_KEY: z.string().min(1).optional(),
+  TURNSTILE_SECRET_KEY: z.string().min(1).optional(),
+  /** Scans one client address may start per hour. */
+  SCAN_RATE_LIMIT_PER_HOUR: z.coerce.number().int().min(1).max(1_000).default(5),
+  /** Scans waiting or running at once, across all clients; more are refused with 503. */
+  SCAN_QUEUE_LIMIT: z.coerce.number().int().min(1).max(10_000).default(20),
+  /** Reverse proxies in front of the API, so the client address comes from X-Forwarded-For. */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
+}).superRefine((env, ctx) => {
+  if (env.SCANNER_ENABLED && (!env.TURNSTILE_SITE_KEY || !env.TURNSTILE_SECRET_KEY)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['TURNSTILE_SECRET_KEY'],
+      message: 'SCANNER_ENABLED needs TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY',
+    });
+  }
 });
 
 export type ApiConfig = z.infer<typeof EnvSchema>;

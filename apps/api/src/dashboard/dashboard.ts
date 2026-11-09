@@ -22,11 +22,14 @@ const API_ONLY_SEGMENTS = new Set(['api', 'docs', 'health', 'metrics']);
 
 /**
  * Pages are fetched by the dashboard's own scripts only. Images come from blob: URLs, because
- * artifacts are fetched with the bearer token; nothing else is loaded from elsewhere.
+ * artifacts are fetched with the bearer token. The only outside origin is Cloudflare Turnstile,
+ * which the public scanner page loads.
  */
 export const DASHBOARD_CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  // Cloudflare Turnstile, for the public scanner page.
+  "script-src 'self' https://challenges.cloudflare.com",
+  'frame-src https://challenges.cloudflare.com',
   "style-src 'self'",
   "img-src 'self' blob: data:",
   "connect-src 'self'",

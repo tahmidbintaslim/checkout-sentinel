@@ -8,8 +8,14 @@ import {
   type DbHandle,
 } from '@checkout-sentinel/db';
 import { TargetGuard, targetPolicyFromEnv, type ResolveHost } from '@checkout-sentinel/core';
-import { JourneyScheduler, createRedis } from '@checkout-sentinel/jobs';
+import {
+  JourneyScheduler,
+  createRedis,
+  createScanQueue,
+  type ScanQueue,
+} from '@checkout-sentinel/jobs';
 import type { ApiConfig } from './config.js';
+import { cloudflareTurnstile, type TurnstileVerifier } from './scans/scans.controller.js';
 import { ApiMetrics } from './metrics/api-metrics.js';
 import {
   API_CONFIG,
@@ -19,14 +25,18 @@ import {
   MONITOR_REPOSITORY,
   REDIS,
   RUN_REPOSITORY,
+  SCAN_QUEUE_HANDLE,
   SCHEDULER,
   TARGET_GUARD,
+  TURNSTILE_VERIFIER,
 } from './tokens.js';
 
 /** Overrides for tests; production uses the defaults. */
 export interface AppOptions {
   /** Replaces the system DNS resolver used by the SSRF guard. */
   resolveHost?: ResolveHost;
+  /** Replaces the call to Cloudflare that checks scanner Turnstile tokens. */
+  verifyTurnstile?: TurnstileVerifier;
 }
 
 @Global()
@@ -36,6 +46,7 @@ export class InfraModule implements OnApplicationShutdown {
     @Inject(DB_HANDLE) private readonly db: DbHandle,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(SCHEDULER) private readonly scheduler: JourneyScheduler,
+    @Inject(SCAN_QUEUE_HANDLE) private readonly scans: ScanQueue,
   ) {}
 
   static forConfig(config: ApiConfig, options: AppOptions = {}) {
@@ -64,6 +75,20 @@ export class InfraModule implements OnApplicationShutdown {
           useFactory: (redis: Redis) => new JourneyScheduler(redis),
         },
         {
+          provide: TURNSTILE_VERIFIER,
+          useFactory: (): TurnstileVerifier =>
+            options.verifyTurnstile ??
+            // Without a secret the scanner is off (config refuses it on), so this never passes.
+            (config.TURNSTILE_SECRET_KEY
+              ? cloudflareTurnstile(config.TURNSTILE_SECRET_KEY)
+              : () => Promise.resolve(false)),
+        },
+        {
+          provide: SCAN_QUEUE_HANDLE,
+          inject: [REDIS],
+          useFactory: (redis: Redis) => createScanQueue(redis),
+        },
+        {
           provide: MONITOR_REPOSITORY,
           inject: [DB_HANDLE],
           useFactory: (db: DbHandle) => new MonitorRepository(db.db),
@@ -89,17 +114,20 @@ export class InfraModule implements OnApplicationShutdown {
         DB_HANDLE,
         REDIS,
         SCHEDULER,
+        SCAN_QUEUE_HANDLE,
         MONITOR_REPOSITORY,
         RUN_REPOSITORY,
         DELIVERY_REPOSITORY,
         API_METRICS,
         TARGET_GUARD,
+        TURNSTILE_VERIFIER,
       ],
     };
   }
 
   async onApplicationShutdown(): Promise<void> {
     await this.scheduler.close();
+    await this.scans.close();
     this.redis.disconnect();
     await this.db.close();
   }

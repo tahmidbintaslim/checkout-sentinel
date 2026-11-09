@@ -234,6 +234,22 @@ set `ALLOW_PRIVATE_TARGETS=true` on both the API and the worker. Do not do that 
 people can create monitors. `ALLOWED_TARGET_HOSTS` and `ALLOWED_TARGET_PORTS` allow single
 internal hosts or extra ports instead. Details are in [SECURITY.md](SECURITY.md#ssrf-protection).
 
+### Public scanner
+
+`SCANNER_ENABLED=true` opens a free scan page at `/scan`: anyone pastes a product URL and gets
+one journey on desktop and mobile, with the tracking tags that fired, without an API token. It
+is off by default because every scan runs a real browser against a URL a stranger chose:
+
+- a Cloudflare Turnstile check on each scan (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`; the
+  API refuses to start the scanner without them),
+- a per-address limit (`SCAN_RATE_LIMIT_PER_HOUR`, default 5; set `TRUST_PROXY_HOPS` behind a
+  proxy) and a cap on scans waiting or running (`SCAN_QUEUE_LIMIT`, default 20, then 503),
+- the same outbound URL checks as monitors, and the per-store lock, so a scan never runs beside a
+  monitor's journey on the same store.
+
+Scans run on their own queue, one at a time per worker, and keep no screenshots or traces.
+Results stay in Redis for 24 hours under a random id (`/scan?id=<id>`); nothing goes to Postgres.
+
 ### Run history and stuck runs
 
 Workers clean up after themselves. When a worker starts, and every 5 minutes after that, one

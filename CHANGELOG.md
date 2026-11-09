@@ -23,6 +23,13 @@ All notable changes are recorded here. The format follows
   `0003_expect_tracking` adds `monitors.expect_tracking`, `monitor_state.tracking_missing` and the
   `tracking` alert kind.
 
+- Public scanner, off by default (`SCANNER_ENABLED`): a `/scan` page and `POST /api/scans`,
+  `GET /api/scans/:id`, `GET /api/scans/config`, all without the API token. One journey per
+  scan on both devices, with the tags that fired; Cloudflare Turnstile, a per-address hourly
+  limit, a queue cap and the outbound URL checks guard it. Scans run on their own BullMQ queue
+  (`store-scans`, one at a time per worker), keep no artifacts, and their results live in Redis
+  for 24 hours. The dashboard CSP allows `https://challenges.cloudflare.com` for Turnstile.
+
 ### Changed
 
 - The dashboard's router and the demo data follow the Vite base path (`--base`). The API client

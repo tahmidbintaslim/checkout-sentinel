@@ -97,3 +97,19 @@ export interface ValidationIssue {
   path: string;
   message: string;
 }
+
+/** GET /scans/config. */
+export interface ScanConfig {
+  enabled: boolean;
+  turnstileSiteKey: string | null;
+}
+
+/** A public scan: queued, then running, then done with a result or error. Kept 24 hours. */
+export interface Scan {
+  id: string;
+  url: string;
+  status: 'queued' | 'running' | 'done' | 'error';
+  createdAt: string;
+  result?: RunResult;
+  error?: string;
+}
