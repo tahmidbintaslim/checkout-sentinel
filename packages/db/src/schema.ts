@@ -11,13 +11,13 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { AlertChannel, DeviceName, RunResult } from '@checkout-sentinel/core';
+import type { AlertChannel, DeviceName, RunResult, TagId } from '@checkout-sentinel/core';
 
 export const requestedPlatform = pgEnum('requested_platform', ['auto', 'shopify', 'woocommerce']);
 export const runStatus = pgEnum('run_status', ['running', 'passed', 'failed', 'error']);
 export const runTrigger = pgEnum('run_trigger', ['schedule', 'manual']);
 export const monitorHealth = pgEnum('monitor_health', ['unknown', 'passing', 'failing']);
-export const alertKind = pgEnum('alert_kind', ['failure', 'recovery', 'slow']);
+export const alertKind = pgEnum('alert_kind', ['failure', 'recovery', 'slow', 'tracking']);
 export const deliveryStatus = pgEnum('delivery_status', ['pending', 'sent', 'failed']);
 
 const timestamps = {
@@ -42,6 +42,10 @@ export const monitors = pgTable(
     alertAfterFailures: integer('alert_after_failures').notNull(),
     alerts: jsonb('alerts')
       .$type<AlertChannel[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    expectTracking: jsonb('expect_tracking')
+      .$type<TagId[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     enabled: boolean('enabled').notNull().default(true),
@@ -99,6 +103,11 @@ export const monitorState = pgTable('monitor_state', {
   consecutiveFailures: integer('consecutive_failures').notNull().default(0),
   /** Slow steps currently over threshold, as "device:step" keys, so a slow alert fires once per breach. */
   slowSteps: jsonb('slow_steps')
+    .$type<string[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  /** Expected tags currently not firing, as "device:tag" keys, so a tracking alert fires once per breach. */
+  trackingMissing: jsonb('tracking_missing')
     .$type<string[]>()
     .notNull()
     .default(sql`'[]'::jsonb`),

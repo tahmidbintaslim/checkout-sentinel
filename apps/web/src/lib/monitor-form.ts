@@ -9,6 +9,7 @@ import {
   type MonitorPatch,
   type MonitorSpecInput,
   type RequestedPlatform,
+  type TagId,
 } from '@checkout-sentinel/core/schemas';
 import type { Monitor, RedactedChannel } from '../api/types';
 
@@ -44,6 +45,7 @@ export interface MonitorForm {
   alertAfterFailures: string;
   enabled: boolean;
   alerts: ChannelDraft[];
+  expectTracking: TagId[];
 }
 
 /** Field path ("name", "alerts.1.url") to its first problem. */
@@ -68,6 +70,7 @@ export function emptyForm(): MonitorForm {
     alertAfterFailures: String(DEFAULTS.alertAfterFailures),
     enabled: DEFAULTS.enabled,
     alerts: [],
+    expectTracking: [...DEFAULTS.expectTracking],
   };
 }
 
@@ -82,6 +85,7 @@ export function formFromMonitor(monitor: Monitor): MonitorForm {
     slowStepMs: String(monitor.slowStepMs),
     alertAfterFailures: String(monitor.alertAfterFailures),
     enabled: monitor.enabled,
+    expectTracking: [...monitor.expectTracking],
     alerts: monitor.alerts.map((channel, index) => ({
       key: nextKey++,
       kind: 'stored',
@@ -177,14 +181,15 @@ export function toCreatePayload(form: MonitorForm): PayloadResult<MonitorSpecInp
     alertAfterFailures: toNumber(form.alertAfterFailures),
     enabled: form.enabled,
     alerts: form.alerts.filter((draft) => draft.kind === 'new').map(newChannel),
+    expectTracking: [...form.expectTracking],
   };
   const parsed = MonitorSpecSchema.safeParse(payload);
   if (!parsed.success) return { ok: false, errors: errorsFromIssues(parsed.error.issues) };
   return { ok: true, payload: { ...payload, name: parsed.data.name } };
 }
 
-function sameDevices(a: readonly DeviceName[], b: readonly DeviceName[]): boolean {
-  return a.length === b.length && a.every((device) => b.includes(device));
+function sameSet<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((item) => b.includes(item));
 }
 
 function alertsUnchanged(form: MonitorForm, monitor: Monitor): boolean {
@@ -203,7 +208,10 @@ export function toUpdatePayload(form: MonitorForm, monitor: Monitor): PayloadRes
   if (name !== monitor.name) payload.name = form.name;
   if (form.url.trim() !== monitor.url) payload.url = form.url.trim();
   if (form.platform !== monitor.platform) payload.platform = form.platform;
-  if (!sameDevices(form.devices, monitor.devices)) payload.devices = [...form.devices];
+  if (!sameSet(form.devices, monitor.devices)) payload.devices = [...form.devices];
+  if (!sameSet(form.expectTracking, monitor.expectTracking)) {
+    payload.expectTracking = [...form.expectTracking];
+  }
   if (form.schedule.trim() !== monitor.schedule) payload.schedule = form.schedule.trim();
   if (form.timezone.trim() !== monitor.timezone) payload.timezone = form.timezone.trim();
   const slowStepMs = toNumber(form.slowStepMs);

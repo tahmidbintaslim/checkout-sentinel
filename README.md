@@ -60,6 +60,8 @@ checkout-sentinel run <productUrl>
   --navigation-timeout <ms>             page loads (default: 30000)
   --step-timeout <ms>                   in-page waits (default: 15000)
   --fail-on-page-errors                 fail a step if the page throws during it
+  --expect-tracking <tags>              comma-separated tags that should fire, reported when they
+                                        do not: ga4, gtm, google_ads, meta, tiktok, pinterest, klaviyo
   --block-private-targets               refuse private and internal addresses and ports other than
                                         80 and 443, as the worker does (reads ALLOWED_TARGET_HOSTS
                                         and ALLOWED_TARGET_PORTS)
@@ -504,7 +506,19 @@ Alerts follow state changes, not individual results:
 - **recovery**: on the first passing run after a failure alert.
 - **slow**: when a passing step crosses `slowStepMs` (default 8000) for the first time; again only
   after it went back under the threshold.
+- **tracking**: when a tag in `expectTracking` (for example `[ga4, meta]`) did not fire on any
+  step of a passing journey; again only after it fired again. A missing tag never fails the
+  journey.
 - Runs that could not execute (browser crash, invalid URL) change nothing.
+
+### Tracking tags
+
+Theme edits, app updates and consent changes often stop Meta Pixel or GA4 from firing without
+any visible error. Each step records which known tags sent a request (GA4, Google Tag Manager,
+Google Ads, Meta Pixel, TikTok, Pinterest, Klaviyo; matched on host and path), shown per step in
+the dashboard and CLI. List the tags a store must keep firing in `expectTracking`. The journey
+never buys, so purchase events are not checked: this proves the tags load and fire on product,
+cart and checkout pages.
 
 Each delivery is recorded in Postgres with a unique key per run, kind and channel, so a retried
 job never sends the same alert twice. Generic webhooks receive a versioned JSON body

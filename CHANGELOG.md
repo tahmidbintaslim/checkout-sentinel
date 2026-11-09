@@ -15,6 +15,14 @@ All notable changes are recorded here. The format follows
   mobile for three runs, then recovers) and derives status and alerts with the worker's state
   machine. A GitHub Pages workflow (`demo-pages.yml`) and `apps/web/vercel.json` publish it.
 
+- Tracking checks: each step records the marketing and analytics tags that fired (GA4, Google
+  Tag Manager, Google Ads, Meta Pixel, TikTok, Pinterest, Klaviyo). A monitor's
+  `expectTracking` lists tags that must keep firing; a journey reports the ones that did not
+  (`journeys[].tracking`), and the worker sends a `tracking` alert when one stops. CLI:
+  `--expect-tracking`. Result schema version stays 1 (the new fields are optional). Migration
+  `0003_expect_tracking` adds `monitors.expect_tracking`, `monitor_state.tracking_missing` and the
+  `tracking` alert kind.
+
 ### Changed
 
 - The dashboard's router and the demo data follow the Vite base path (`--base`). The API client

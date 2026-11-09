@@ -4,3 +4,4 @@
  */
 export * from './monitor.js';
 export * from './schema.js';
+export * from './tracking.js';

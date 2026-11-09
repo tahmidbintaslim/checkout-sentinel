@@ -1,5 +1,6 @@
 import type { Page } from 'playwright';
 import type { ConsoleError, FailedRequest, PageError, StepName } from './schema.js';
+import { tagsForUrl, type TagId } from './tracking.js';
 
 /** Results stay bounded even when a page logs in a loop. */
 export const MAX_EVENTS_PER_STEP = 50;
@@ -8,10 +9,12 @@ export interface StepEvents {
   consoleErrors: ConsoleError[];
   pageErrors: PageError[];
   failedRequests: FailedRequest[];
+  /** Tags that sent a request during the step, each once. */
+  tags: TagId[];
 }
 
 function emptyEvents(): StepEvents {
-  return { consoleErrors: [], pageErrors: [], failedRequests: [] };
+  return { consoleErrors: [], pageErrors: [], failedRequests: [], tags: [] };
 }
 
 function push<T>(list: T[], item: T): void {
@@ -61,7 +64,15 @@ export class StepRecorder {
     if (bucket) push(bucket.failedRequests, request);
   }
 
+  recordRequest(url: string): void {
+    const bucket = this.bucket();
+    if (!bucket) return;
+    for (const tag of tagsForUrl(url)) if (!bucket.tags.includes(tag)) bucket.tags.push(tag);
+  }
+
   attach(page: Page): void {
+    // The context, not the page: Shopify runs web pixels in sandboxed iframes and workers.
+    page.context().on('request', (request) => this.recordRequest(request.url()));
     page.on('console', (message) => {
       if (message.type() !== 'error') return;
       const { url, lineNumber } = message.location();

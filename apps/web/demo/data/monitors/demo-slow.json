@@ -18,6 +18,7 @@
       "hasSecret": false
     }
   ],
+  "expectTracking": [],
   "enabled": true,
   "createdAt": "2026-10-26T03:00:00.000Z",
   "updatedAt": "2026-10-26T03:00:00.000Z",
@@ -28,6 +29,7 @@
       "desktop:go_to_checkout",
       "mobile:go_to_checkout"
     ],
+    "trackingMissing": [],
     "lastRunId": "3ce8899c-98a9-4ff4-bbf6-fd0ac9979524",
     "lastRunStatus": "passed",
     "lastRunAt": "2026-10-26T06:00:04.396Z",

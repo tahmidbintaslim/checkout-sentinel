@@ -9,6 +9,7 @@ import { DEVICE_PROFILES, resolveDevices, type DeviceSelection } from './devices
 import { EgressProxy, targetOfUrl, type EgressEvent } from './egress-proxy.js';
 import { TimeoutsSchema, type Timeouts } from './monitor.js';
 import { StepRecorder } from './recorder.js';
+import { missingTags, type TagId } from './tracking.js';
 import { installOrderGuard } from './safety.js';
 import {
   RESULT_SCHEMA_VERSION,
@@ -62,6 +63,11 @@ export interface RunOptions {
    * the journey can reach any address (the CLI's default, since it runs on the user's machine).
    */
   targetGuard?: TargetGuard;
+  /**
+   * Tags each journey should see fire (on any step). Each journey then reports the ones that
+   * did not; a missing tag never fails the journey.
+   */
+  expectTracking?: readonly TagId[];
 }
 
 export const DEFAULT_SLOW_STEP_MS = 8_000;
@@ -561,6 +567,7 @@ async function runJourney(
     await context.close().catch(() => undefined);
   }
 
+  const expected = options.expectTracking ?? [];
   return {
     device,
     status: failedStep ? 'failed' : 'passed',
@@ -569,6 +576,17 @@ async function runJourney(
     platform: state.detection,
     ...(failedStep ? { failedStep } : {}),
     steps: results,
+    ...(expected.length > 0
+      ? {
+          tracking: {
+            expected: [...expected],
+            missing: missingTags(
+              expected,
+              results.flatMap((step) => step.tags ?? []),
+            ),
+          },
+        }
+      : {}),
     ...(trace ? { trace } : {}),
   };
 }

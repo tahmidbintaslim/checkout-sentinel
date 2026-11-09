@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
-import type { JourneyResult, StepResult } from '@checkout-sentinel/core/schemas';
+import {
+  TAG_LABELS,
+  type JourneyResult,
+  type StepResult,
+  type TagId,
+} from '@checkout-sentinel/core/schemas';
 import type { RunArtifact } from '../api/types';
 import { capitalize, formatDuration, platformName, stepLabel } from '../lib/format';
 import ArtifactImage from './ArtifactImage.vue';
@@ -14,6 +19,7 @@ const props = defineProps<{
 }>();
 
 const headingId = useId();
+const tagNames = (tags: readonly TagId[]) => tags.map((tag) => TAG_LABELS[tag]).join(', ');
 const start = computed(() => Date.parse(props.journey.startedAt));
 const total = computed(() =>
   Math.max(
@@ -62,6 +68,9 @@ const stepStatus = (step: StepResult) =>
       </span>
       <TraceDownload v-if="trace" :run-id="runId" :name="trace.name" :device="journey.device" />
     </div>
+    <p v-if="journey.tracking?.missing.length" class="error-text">
+      Tracking not firing: {{ tagNames(journey.tracking.missing) }}
+    </p>
 
     <ol class="timeline">
       <li
@@ -88,6 +97,7 @@ const stepStatus = (step: StepResult) =>
         >
           {{ step.message }}
         </p>
+        <p v-if="step.tags?.length" class="muted small">Tags fired: {{ tagNames(step.tags) }}</p>
 
         <details v-if="step.consoleErrors.length > 0" :open="step.status === 'failed'">
           <summary>Console errors ({{ step.consoleErrors.length }})</summary>

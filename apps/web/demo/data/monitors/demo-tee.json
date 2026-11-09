@@ -18,6 +18,7 @@
       "hasSecret": false
     }
   ],
+  "expectTracking": [],
   "enabled": true,
   "createdAt": "2026-10-25T23:00:00.000Z",
   "updatedAt": "2026-10-25T23:00:00.000Z",
@@ -25,6 +26,7 @@
     "health": "passing",
     "consecutiveFailures": 0,
     "slowSteps": [],
+    "trackingMissing": [],
     "lastRunId": "23439b81-4904-4d52-a5a1-aa52ad67a112",
     "lastRunStatus": "passed",
     "lastRunAt": "2026-10-26T06:00:01.345Z",

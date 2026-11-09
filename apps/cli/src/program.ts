@@ -3,6 +3,8 @@ import path from 'node:path';
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import {
   ExitCode,
+  TAG_IDS,
+  TagIdSchema,
   TargetGuard,
   TargetPolicyEnvSchema,
   VERSION,
@@ -12,6 +14,7 @@ import {
   type DeviceSelection,
   type RequestedPlatform,
   type RunResult,
+  type TagId,
 } from '@checkout-sentinel/core';
 import { ConfigError, EXAMPLE_CONFIG, loadMonitorsFile } from './config.js';
 import { formatRunResult, ttyPaint, type Paint } from './format.js';
@@ -40,6 +43,20 @@ const positiveInt = (value: string): number => {
   return parsed;
 };
 
+const tagList = (value: string): TagId[] => {
+  const tags = value
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  const unknown = tags.filter((tag) => !TagIdSchema.safeParse(tag).success);
+  if (unknown.length > 0) {
+    throw new InvalidArgumentError(
+      `Unknown tag ${unknown.join(', ')}. Known: ${TAG_IDS.join(', ')}.`,
+    );
+  }
+  return [...new Set(tags)] as TagId[];
+};
+
 interface RunFlags {
   platform: RequestedPlatform;
   device: DeviceSelection;
@@ -49,6 +66,7 @@ interface RunFlags {
   navigationTimeout?: number;
   stepTimeout?: number;
   failOnPageErrors?: boolean;
+  expectTracking?: TagId[];
   blockPrivateTargets?: boolean;
 }
 
@@ -148,6 +166,11 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
       '--fail-on-page-errors',
       'fail a step when the page throws an uncaught exception during it',
     )
+    .option(
+      '--expect-tracking <tags>',
+      `comma-separated tags that should fire, reported when they do not (${TAG_IDS.join(', ')})`,
+      tagList,
+    )
     .option('--block-private-targets', BLOCK_PRIVATE_HELP)
     .action(async (productUrl: string, flags: RunFlags) => {
       const outDir = path.resolve(io.cwd, flags.out);
@@ -163,6 +186,7 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
           ...(flags.stepTimeout ? { stepMs: flags.stepTimeout } : {}),
         },
         failOnPageErrors: flags.failOnPageErrors ?? false,
+        ...(flags.expectTracking ? { expectTracking: flags.expectTracking } : {}),
         ...guard,
       });
       const file = await writeResult(outDir, result);
@@ -197,6 +221,7 @@ export function buildProgram(io: Io = defaultIo): { program: Command; exitCode: 
           platform: monitor.platform,
           devices: monitor.devices,
           slowStepMs: monitor.slowStepMs,
+          expectTracking: monitor.expectTracking,
           artifactsDir: outDir,
           timeouts: config.defaults?.timeouts ?? {},
           ...guard,

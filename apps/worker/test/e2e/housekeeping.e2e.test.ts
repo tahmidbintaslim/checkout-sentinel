@@ -250,6 +250,7 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
         health: 'failing',
         consecutiveFailures: 2,
         slowSteps: [],
+        trackingMissing: [],
         lastRunId: last,
         lastRunStatus: 'failed',
         lastRunAt: new Date(),

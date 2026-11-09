@@ -26,7 +26,7 @@ import {
   type FixtureStoreOptions,
   type FixtureVariant,
 } from '@checkout-sentinel/fixtures';
-import { evaluateTransition, type AlertState } from '@checkout-sentinel/worker';
+import { evaluateTransition, type AlertKind, type AlertState } from '@checkout-sentinel/worker';
 
 const outDir = fileURLToPath(new URL('../demo/data/', import.meta.url));
 const HOUR = 3_600_000;
@@ -118,7 +118,12 @@ for (const plan of plans) {
   const origin = `http://127.0.0.1:${plan.port}`;
   let productPath = '';
   const runs: Record<string, unknown>[] = [];
-  let state: AlertState = { health: 'unknown', consecutiveFailures: 0, slowSteps: [] };
+  let state: AlertState = {
+    health: 'unknown',
+    consecutiveFailures: 0,
+    slowSteps: [],
+    trackingMissing: [],
+  };
   let healthChangedAt: string | null = null;
 
   for (const [index, variant] of plan.runs.entries()) {
@@ -174,7 +179,7 @@ for (const plan of plans) {
     runs.push(summary);
     await writeJson(`runs/${runId}.json`, { ...summary, artifacts, result });
 
-    const alert = async (kind: 'failure' | 'recovery' | 'slow') => {
+    const alert = async (kind: AlertKind) => {
       const response = await fetch(hooks.url(`/${plan.id}`), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -213,6 +218,7 @@ for (const plan of plans) {
     slowStepMs: plan.slowStepMs,
     alertAfterFailures: plan.alertAfterFailures,
     alerts: [{ type: 'webhook', url: 'https://hooks.example/checkout-alerts', hasSecret: false }],
+    expectTracking: [],
     enabled: true,
     createdAt: new Date(now - plan.runs.length * HOUR).toISOString(),
     updatedAt: new Date(now - plan.runs.length * HOUR).toISOString(),
@@ -220,6 +226,7 @@ for (const plan of plans) {
       health: state.health,
       consecutiveFailures: state.consecutiveFailures,
       slowSteps: state.slowSteps,
+      trackingMissing: state.trackingMissing,
       lastRunId: last.id,
       lastRunStatus: last.status,
       lastRunAt: last.finishedAt,
