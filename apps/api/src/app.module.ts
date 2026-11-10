@@ -10,6 +10,7 @@ import { MetricsController } from './metrics/metrics.controller.js';
 import { MonitorsController } from './monitors/monitors.controller.js';
 import { MonitorsService } from './monitors/monitors.service.js';
 import { RunsController } from './runs/runs.controller.js';
+import { ScansController } from './scans/scans.controller.js';
 
 @Module({})
 export class AppModule {
@@ -36,6 +37,7 @@ export class AppModule {
         MonitorsController,
         RunsController,
         AlertsController,
+        ScansController,
       ],
       providers: [MonitorsService, { provide: APP_GUARD, useClass: ApiTokenGuard }],
     };

@@ -51,6 +51,12 @@ services:
       API_TOKEN: ${API_TOKEN:-}
       MIGRATE_ON_BOOT: 'true'
       DASHBOARD_ENABLED: ${DASHBOARD_ENABLED:-true}
+      SCANNER_ENABLED: ${SCANNER_ENABLED:-false}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      SCAN_RATE_LIMIT_PER_HOUR: ${SCAN_RATE_LIMIT_PER_HOUR:-5}
+      SCAN_QUEUE_LIMIT: ${SCAN_QUEUE_LIMIT:-20}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
     # Read-only: the dashboard shows the screenshots and offers the traces workers write here.
     volumes:
       - artifacts:/data/artifacts:ro

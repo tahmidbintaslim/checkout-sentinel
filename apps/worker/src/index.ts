@@ -7,5 +7,6 @@ export * from './config.js';
 export * from './housekeeping.js';
 export * from './metrics.js';
 export * from './processor.js';
+export * from './scan.js';
 export * from './store-lock.js';
 export * from './worker.js';

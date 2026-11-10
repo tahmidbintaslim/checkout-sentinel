@@ -93,6 +93,7 @@ monitors:
     timezone: UTC
     slowStepMs: 8000 # a passing step slower than this raises a slow-step alert
     alertAfterFailures: 2 # consecutive failed runs before alerting
+    expectTracking: [ga4, meta] # tags that must keep firing: ga4, gtm, google_ads, meta, tiktok, pinterest, klaviyo
     alerts:
       - type: slack
         url: https://hooks.slack.com/services/REPLACE/WITH/YOURS

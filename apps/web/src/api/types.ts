@@ -3,6 +3,7 @@ import type {
   RequestedPlatform,
   RunResult,
   StepName,
+  TagId,
 } from '@checkout-sentinel/core/schemas';
 
 /** Response shapes of the checkout-sentinel API, as apps/api/src/monitors/monitor.mapper.ts writes them. */
@@ -15,6 +16,8 @@ export interface MonitorStatus {
   consecutiveFailures: number;
   /** "device:step" keys of passing steps currently over the slow threshold. */
   slowSteps: string[];
+  /** "device:tag" keys of expected tags that did not fire on the last passing run. */
+  trackingMissing: string[];
   lastRunId: string | null;
   lastRunStatus: RunStatus | null;
   lastRunAt: string | null;
@@ -36,6 +39,7 @@ export interface Monitor {
   slowStepMs: number;
   alertAfterFailures: number;
   alerts: RedactedChannel[];
+  expectTracking: TagId[];
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -92,4 +96,20 @@ export interface ValidationIssue {
   /** Dotted path into the request body, for example "alerts.0.url". */
   path: string;
   message: string;
+}
+
+/** GET /scans/config. */
+export interface ScanConfig {
+  enabled: boolean;
+  turnstileSiteKey: string | null;
+}
+
+/** A public scan: queued, then running, then done with a result or error. Kept 24 hours. */
+export interface Scan {
+  id: string;
+  url: string;
+  status: 'queued' | 'running' | 'done' | 'error';
+  createdAt: string;
+  result?: RunResult;
+  error?: string;
 }

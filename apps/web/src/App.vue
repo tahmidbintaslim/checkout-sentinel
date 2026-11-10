@@ -30,6 +30,9 @@ router.afterEach((to, from) => {
             <RouterLink to="/alerts" class="nav-link" active-class="active">Alert log</RouterLink>
           </li>
           <li v-if="!demo">
+            <RouterLink to="/scan" class="nav-link" active-class="active">Free scan</RouterLink>
+          </li>
+          <li v-if="!demo">
             <RouterLink to="/settings" class="nav-link" active-class="active">API token</RouterLink>
           </li>
         </ul>

@@ -1,5 +1,14 @@
 import type { MonitorPatch, MonitorSpecInput } from '@checkout-sentinel/core/schemas';
-import type { AlertEntry, Monitor, Page, RunDetail, RunSummary, ValidationIssue } from './types';
+import type {
+  AlertEntry,
+  Monitor,
+  Page,
+  RunDetail,
+  RunSummary,
+  Scan,
+  ScanConfig,
+  ValidationIssue,
+} from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -100,6 +109,10 @@ export function createApiClient(options: ApiClientOptions) {
     getRun: (id: string) => json<RunDetail>('GET', `/runs/${segment(id)}`),
     listAlerts: (query: { limit?: number; monitorId?: string; before?: string } = {}) =>
       json<Page<AlertEntry>>('GET', withQuery('/alerts', query)),
+    getScanConfig: () => json<ScanConfig>('GET', '/scans/config'),
+    startScan: (url: string, turnstileToken: string) =>
+      json<{ id: string }>('POST', '/scans', { url, turnstileToken }),
+    getScan: (id: string) => json<Scan>('GET', `/scans/${segment(id)}`),
     getArtifact: async (runId: string, name: string): Promise<Blob> =>
       (
         await request('GET', `/runs/${segment(runId)}/artifacts/${segment(name)}`, {

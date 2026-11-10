@@ -21,6 +21,7 @@ describe('monitors list', () => {
         health: 'unknown',
         consecutiveFailures: 0,
         slowSteps: [],
+        trackingMissing: [],
         lastRunId: null,
         lastRunStatus: null,
         lastRunAt: null,

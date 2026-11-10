@@ -60,6 +60,8 @@ checkout-sentinel run <productUrl>
   --navigation-timeout <ms>             page loads (default: 30000)
   --step-timeout <ms>                   in-page waits (default: 15000)
   --fail-on-page-errors                 fail a step if the page throws during it
+  --expect-tracking <tags>              comma-separated tags that should fire, reported when they
+                                        do not: ga4, gtm, google_ads, meta, tiktok, pinterest, klaviyo
   --block-private-targets               refuse private and internal addresses and ports other than
                                         80 and 443, as the worker does (reads ALLOWED_TARGET_HOSTS
                                         and ALLOWED_TARGET_PORTS)
@@ -231,6 +233,22 @@ To monitor a store running on your own machine or network (for example the fixtu
 set `ALLOW_PRIVATE_TARGETS=true` on both the API and the worker. Do not do that where other
 people can create monitors. `ALLOWED_TARGET_HOSTS` and `ALLOWED_TARGET_PORTS` allow single
 internal hosts or extra ports instead. Details are in [SECURITY.md](SECURITY.md#ssrf-protection).
+
+### Public scanner
+
+`SCANNER_ENABLED=true` opens a free scan page at `/scan`: anyone pastes a product URL and gets
+one journey on desktop and mobile, with the tracking tags that fired, without an API token. It
+is off by default because every scan runs a real browser against a URL a stranger chose:
+
+- a Cloudflare Turnstile check on each scan (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`; the
+  API refuses to start the scanner without them),
+- a per-address limit (`SCAN_RATE_LIMIT_PER_HOUR`, default 5; set `TRUST_PROXY_HOPS` behind a
+  proxy) and a cap on scans waiting or running (`SCAN_QUEUE_LIMIT`, default 20, then 503),
+- the same outbound URL checks as monitors, and the per-store lock, so a scan never runs beside a
+  monitor's journey on the same store.
+
+Scans run on their own queue, one at a time per worker, and keep no screenshots or traces.
+Results stay in Redis for 24 hours under a random id (`/scan?id=<id>`); nothing goes to Postgres.
 
 ### Run history and stuck runs
 
@@ -504,7 +522,19 @@ Alerts follow state changes, not individual results:
 - **recovery**: on the first passing run after a failure alert.
 - **slow**: when a passing step crosses `slowStepMs` (default 8000) for the first time; again only
   after it went back under the threshold.
+- **tracking**: when a tag in `expectTracking` (for example `[ga4, meta]`) did not fire on any
+  step of a passing journey; again only after it fired again. A missing tag never fails the
+  journey.
 - Runs that could not execute (browser crash, invalid URL) change nothing.
+
+### Tracking tags
+
+Theme edits, app updates and consent changes often stop Meta Pixel or GA4 from firing without
+any visible error. Each step records which known tags sent a request (GA4, Google Tag Manager,
+Google Ads, Meta Pixel, TikTok, Pinterest, Klaviyo; matched on host and path), shown per step in
+the dashboard and CLI. List the tags a store must keep firing in `expectTracking`. The journey
+never buys, so purchase events are not checked: this proves the tags load and fire on product,
+cart and checkout pages.
 
 Each delivery is recorded in Postgres with a unique key per run, kind and channel, so a retried
 job never sends the same alert twice. Generic webhooks receive a versioned JSON body

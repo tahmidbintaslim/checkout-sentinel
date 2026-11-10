@@ -72,6 +72,8 @@ export interface FixtureStoreOptions {
    * DOMContentLoaded. Works with every variant. SSRF guard tests.
    */
   loopbackSubresource?: boolean;
+  /** Every HTML page requests these URLs as images, the way a tracking pixel fires. Tracking tests. */
+  tagUrls?: string[];
   /**
    * Shopify: whether `/products/<handle>.js` answers (default true). Without it the product
    * JSON is only in the page. `redirect-to-loopback`: requested by any host name other than
@@ -204,6 +206,19 @@ export function createFixtureApp(options: FixtureStoreOptions): {
         res.redirect(302, `http://127.0.0.1:${req.socket.localPort}${req.originalUrl}`);
         return;
       }
+      next();
+    });
+  }
+
+  if (options.tagUrls?.length) {
+    const urls = JSON.stringify(options.tagUrls);
+    const script = `<script>for (const u of ${urls}) new Image().src = u;</script>`;
+    app.use((_req, res, next) => {
+      const send = res.send.bind(res);
+      res.send = ((body?: unknown) =>
+        send(
+          typeof body === 'string' ? body.replace('</head>', `${script}\n</head>`) : body,
+        )) as typeof res.send;
       next();
     });
   }

@@ -79,6 +79,7 @@ function specToRow(spec: Partial<MonitorSpec>) {
       ? { alertAfterFailures: spec.alertAfterFailures }
       : {}),
     ...(spec.alerts !== undefined ? { alerts: spec.alerts } : {}),
+    ...(spec.expectTracking !== undefined ? { expectTracking: spec.expectTracking } : {}),
     ...(spec.enabled !== undefined ? { enabled: spec.enabled } : {}),
   };
 }
@@ -106,6 +107,7 @@ export class MonitorRepository {
           slowStepMs: spec.slowStepMs,
           alertAfterFailures: spec.alertAfterFailures,
           alerts: spec.alerts,
+          expectTracking: spec.expectTracking,
           enabled: spec.enabled,
         })
         .returning();
@@ -379,6 +381,7 @@ export interface StateUpdate {
   health: MonitorStateRow['health'];
   consecutiveFailures: number;
   slowSteps: string[];
+  trackingMissing: string[];
   lastRunId: string;
   lastRunStatus: NonNullable<MonitorStateRow['lastRunStatus']>;
   lastRunAt: Date;
@@ -405,6 +408,7 @@ async function writeState(tx: Transaction, monitorId: string, update: StateUpdat
       health: update.health,
       consecutiveFailures: update.consecutiveFailures,
       slowSteps: update.slowSteps,
+      trackingMissing: update.trackingMissing,
       lastRunId: update.lastRunId,
       lastRunStatus: update.lastRunStatus,
       lastRunAt: update.lastRunAt,

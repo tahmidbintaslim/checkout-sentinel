@@ -23,6 +23,7 @@ const stored: Monitor = {
     { type: 'slack', url: 'https://hooks.slack.com/...XYZ1' },
     { type: 'webhook', url: 'https://ops.example/hook', hasSecret: true },
   ],
+  expectTracking: ['ga4'],
   enabled: true,
   createdAt: '2026-10-26T00:00:00.000Z',
   updatedAt: '2026-10-26T00:00:00.000Z',
@@ -30,6 +31,7 @@ const stored: Monitor = {
     health: 'unknown',
     consecutiveFailures: 0,
     slowSteps: [],
+    trackingMissing: [],
     lastRunId: null,
     lastRunStatus: null,
     lastRunAt: null,
@@ -48,6 +50,7 @@ describe('emptyForm', () => {
       alertAfterFailures: '2',
       enabled: true,
       alerts: [],
+      expectTracking: [],
     });
   });
 });
@@ -79,6 +82,7 @@ describe('toCreatePayload', () => {
           { type: 'webhook', url: 'https://ops.example/hook', secret: 'sixteen-chars-secret' },
           { type: 'slack', url: 'https://hooks.slack.com/services/T/B/X' },
         ],
+        expectTracking: [],
       },
     });
   });

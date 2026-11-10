@@ -1,6 +1,7 @@
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
 import { DeviceNameSchema, RequestedPlatformSchema } from './schema.js';
+import { TAG_IDS, TagIdSchema } from './tracking.js';
 
 /**
  * A monitor is a product URL checked on a schedule. The same schema validates the CLI's
@@ -109,6 +110,11 @@ const fields = {
   /** Consecutive failed runs before a failure alert; 2 filters one-off network blips. */
   alertAfterFailures: z.number().int().min(1).max(10),
   alerts: z.array(AlertChannelSchema).max(MAX_ALERT_CHANNELS),
+  /** Tags that should fire on every journey; a tag that stops firing raises a tracking alert. */
+  expectTracking: z
+    .array(TagIdSchema)
+    .max(TAG_IDS.length)
+    .refine((tags) => new Set(tags).size === tags.length, 'Each tag may be listed once'),
   enabled: z.boolean(),
 };
 
@@ -140,6 +146,7 @@ export const MonitorSpecSchema = z.object({
   slowStepMs: fields.slowStepMs.default(8_000),
   alertAfterFailures: fields.alertAfterFailures.default(2),
   alerts: fields.alerts.default([]),
+  expectTracking: fields.expectTracking.default([]),
   enabled: fields.enabled.default(true),
 });
 export type MonitorSpec = z.infer<typeof MonitorSpecSchema>;
@@ -160,6 +167,7 @@ export const MonitorPatchSchema = z
     slowStepMs: fields.slowStepMs.optional(),
     alertAfterFailures: fields.alertAfterFailures.optional(),
     alerts: alertsPatch.optional(),
+    expectTracking: fields.expectTracking.optional(),
     enabled: fields.enabled.optional(),
     /**
      * The monitor's updatedAt as the client read it. When it differs, nothing is written (409).

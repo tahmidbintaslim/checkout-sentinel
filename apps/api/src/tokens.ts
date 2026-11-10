@@ -12,3 +12,5 @@ export const RUN_REPOSITORY = Symbol('RUN_REPOSITORY');
 export const DELIVERY_REPOSITORY = Symbol('DELIVERY_REPOSITORY');
 export const API_METRICS = Symbol('API_METRICS');
 export const TARGET_GUARD = Symbol('TARGET_GUARD');
+export const SCAN_QUEUE_HANDLE = Symbol('SCAN_QUEUE_HANDLE');
+export const TURNSTILE_VERIFIER = Symbol('TURNSTILE_VERIFIER');

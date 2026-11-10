@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { TAG_IDS, TAG_LABELS } from '@checkout-sentinel/core/schemas';
 import { ApiError } from '../api/client';
 import type { Monitor } from '../api/types';
 import AlertChannelsEditor from '../components/AlertChannelsEditor.vue';
@@ -63,6 +64,7 @@ const FIELD_IDS = {
   timezone: 'field-timezone',
   slowStepMs: 'field-slow',
   alertAfterFailures: 'field-failures',
+  expectTracking: 'field-tracking',
   enabled: 'field-enabled',
 } as const;
 type Field = keyof typeof FIELD_IDS;
@@ -75,6 +77,7 @@ const LABELS: Record<Field, string> = {
   timezone: 'Time zone',
   slowStepMs: 'Slow step threshold',
   alertAfterFailures: 'Failure alert after',
+  expectTracking: 'Tracking tags',
   enabled: 'Run on schedule',
 };
 
@@ -357,6 +360,31 @@ async function submit() {
           </p>
         </div>
       </div>
+
+      <fieldset
+        :id="FIELD_IDS.expectTracking"
+        class="field"
+        :aria-describedby="describedBy('expectTracking')"
+      >
+        <legend>Tracking tags to watch</legend>
+        <div class="checks">
+          <label v-for="tag in TAG_IDS" :key="tag" class="check">
+            <input v-model="form.expectTracking" type="checkbox" :value="tag" />
+            {{ TAG_LABELS[tag] }}
+          </label>
+        </div>
+        <p :id="`${FIELD_IDS.expectTracking}-hint`" class="hint">
+          Each run checks these still fire on the product, cart and checkout pages. If one stops,
+          you get a tracking alert. The journey never buys, so purchase events are not checked.
+        </p>
+        <p
+          v-if="errors.expectTracking"
+          :id="`${FIELD_IDS.expectTracking}-error`"
+          class="error-text"
+        >
+          {{ errors.expectTracking }}
+        </p>
+      </fieldset>
 
       <div class="field">
         <label class="check">

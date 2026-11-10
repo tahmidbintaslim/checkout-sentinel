@@ -65,6 +65,7 @@ describe('new monitor form', () => {
       alerts: [
         { type: 'webhook', url: 'https://ops.example/hook', secret: 'sixteen-chars-secret' },
       ],
+      expectTracking: [],
     });
     expect(router.currentRoute.value.path).toBe(`/monitors/${created.id}`);
   });

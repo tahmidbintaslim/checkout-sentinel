@@ -59,7 +59,7 @@ export type JobOutcome =
   | { outcome: 'discarded'; runId: string; status: RunResult['status']; reason: string };
 
 /** Delay before retrying a job whose store is busy; jittered so waiting jobs spread out. */
-function lockRetryDelayMs(): number {
+export function lockRetryDelayMs(): number {
   return 15_000 + Math.floor(Math.random() * 15_000);
 }
 
@@ -181,6 +181,7 @@ export async function processJourneyJob(
       platform: monitor.platform,
       devices: monitor.devices,
       slowStepMs: monitor.slowStepMs,
+      expectTracking: monitor.expectTracking,
       runId: run.id,
       browser: await deps.browsers.get(),
       targetGuard: deps.targetGuard,
@@ -199,6 +200,7 @@ export async function processJourneyJob(
           health: state.health,
           consecutiveFailures: state.consecutiveFailures,
           slowSteps: state.slowSteps,
+          trackingMissing: state.trackingMissing,
         },
         result,
         monitor.alertAfterFailures,

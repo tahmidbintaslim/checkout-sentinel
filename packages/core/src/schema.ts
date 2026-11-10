@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TagIdSchema } from './tracking.js';
 
 /**
  * Versioned result contract. Anything that stores or forwards results (the CLI's --json
@@ -67,6 +68,8 @@ export const StepResultSchema = z.object({
   consoleErrors: z.array(ConsoleErrorSchema),
   pageErrors: z.array(PageErrorSchema),
   failedRequests: z.array(FailedRequestSchema),
+  /** Marketing and analytics tags that sent a request during this step. Absent in older results. */
+  tags: z.array(TagIdSchema).optional(),
   screenshot: z.string().optional(),
 });
 export type StepResult = z.infer<typeof StepResultSchema>;
@@ -88,6 +91,14 @@ export const JourneyResultSchema = z.object({
   platform: DetectionSchema.nullable(),
   failedStep: StepNameSchema.optional(),
   steps: z.array(StepResultSchema),
+  /** Present when the run was told which tags to expect. A missing tag does not fail the journey. */
+  tracking: z
+    .object({
+      expected: z.array(TagIdSchema),
+      /** Expected tags that fired on no step of this journey. */
+      missing: z.array(TagIdSchema),
+    })
+    .optional(),
   trace: z.string().optional(),
 });
 export type JourneyResult = z.infer<typeof JourneyResultSchema>;

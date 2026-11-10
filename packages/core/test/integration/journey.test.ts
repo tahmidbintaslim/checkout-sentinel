@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Browser } from 'playwright';
+import { chromium, type Browser } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   startFixtureStore,
@@ -14,6 +14,7 @@ import {
   RunResultSchema,
   installOrderGuard,
   launchBrowser,
+  resolveExecutablePath,
   runJourneys,
   type RunOptions,
   type RunResult,
@@ -655,5 +656,33 @@ describe('order guard', () => {
     await context.close();
     expect(outcome).toEqual({ processing: 'blocked', cartAdd: 200 });
     expect(target.orderAttempts()).toBe(0);
+  });
+});
+
+describe('tracking tags', () => {
+  it('records the tags that fire and reports expected ones that do not', async () => {
+    // Pixel hosts resolve nowhere, so the requests fire (and are seen) but nothing leaves.
+    const executablePath = resolveExecutablePath();
+    const offline = await chromium.launch({
+      ...(executablePath ? { executablePath } : {}),
+      args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'],
+    });
+    try {
+      const target = await store({
+        platform: 'shopify',
+        tagUrls: ['https://www.facebook.com/tr?id=1&ev=PageView'],
+      });
+      const result = await run(target, {
+        browser: offline,
+        devices: 'mobile',
+        expectTracking: ['meta', 'ga4'],
+      });
+      expect(result.status).toBe('passed');
+      const journey = result.journeys[0]!;
+      expect(journey.steps.find((s) => s.name === 'open_product')?.tags).toEqual(['meta']);
+      expect(journey.tracking).toEqual({ expected: ['meta', 'ga4'], missing: ['ga4'] });
+    } finally {
+      await offline.close();
+    }
   });
 });

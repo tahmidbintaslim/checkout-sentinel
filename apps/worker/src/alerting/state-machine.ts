@@ -7,23 +7,27 @@ import type { RunResult } from '@checkout-sentinel/core';
  *   unknown/passing --(N consecutive failed runs)--> failing   => "failure" alert
  *   failing         --(one passed run)-------------> passing   => "recovery" alert
  *   any             --(passed run with a newly slow step)----> => "slow" alert
+ *   any             --(passed run, an expected tag newly missing)-> => "tracking" alert
  *
  * Runs with status "error" (browser crash, invalid URL) say nothing about the store and do
  * not move the state or alert the merchant.
  */
 export type Health = 'unknown' | 'passing' | 'failing';
-export type AlertKind = 'failure' | 'recovery' | 'slow';
+export type AlertKind = 'failure' | 'recovery' | 'slow' | 'tracking';
 
 export interface AlertState {
   health: Health;
   consecutiveFailures: number;
   slowSteps: string[];
+  trackingMissing: string[];
 }
 
 export interface AlertDecision {
   kind: AlertKind;
   /** For slow alerts: the "device:step" keys that crossed the threshold on this run. */
   slowSteps?: string[];
+  /** For tracking alerts: the "device:tag" keys that stopped firing on this run. */
+  trackingMissing?: string[];
 }
 
 export interface Transition {
@@ -35,6 +39,12 @@ export interface Transition {
 export function slowStepKeys(result: RunResult): string[] {
   return result.journeys.flatMap((journey) =>
     journey.steps.filter((step) => step.slow).map((step) => `${journey.device}:${step.name}`),
+  );
+}
+
+export function missingTagKeys(result: Pick<RunResult, 'journeys'>): string[] {
+  return result.journeys.flatMap((journey) =>
+    (journey.tracking?.missing ?? []).map((tag) => `${journey.device}:${tag}`),
   );
 }
 
@@ -55,6 +65,8 @@ export function evaluateTransition(
         health: crossing ? 'failing' : previous.health,
         consecutiveFailures,
         slowSteps: previous.slowSteps,
+        // A failed journey stops early, so tags it never reached say nothing.
+        trackingMissing: previous.trackingMissing,
       },
       healthChanged: crossing,
       alerts: crossing ? [{ kind: 'failure' }] : [],
@@ -69,8 +81,17 @@ export function evaluateTransition(
   const newlySlow = current.filter((key) => !previous.slowSteps.includes(key));
   if (newlySlow.length > 0) alerts.push({ kind: 'slow', slowSteps: newlySlow });
 
+  const missing = missingTagKeys(result);
+  const newlyMissing = missing.filter((key) => !previous.trackingMissing.includes(key));
+  if (newlyMissing.length > 0) alerts.push({ kind: 'tracking', trackingMissing: newlyMissing });
+
   return {
-    next: { health: 'passing', consecutiveFailures: 0, slowSteps: current },
+    next: {
+      health: 'passing',
+      consecutiveFailures: 0,
+      slowSteps: current,
+      trackingMissing: missing,
+    },
     healthChanged: previous.health !== 'passing',
     alerts,
   };

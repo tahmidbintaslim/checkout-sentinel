@@ -57,6 +57,10 @@ export async function createApp(
   });
   app.useLogger(app.get(Logger));
   app.useGlobalPipes(createValidationPipe());
+  // The scanner's per-client limit reads req.ip; behind a proxy that must be the client.
+  if (config.TRUST_PROXY_HOPS > 0) {
+    app.getHttpAdapter().getInstance().set('trust proxy', config.TRUST_PROXY_HOPS);
+  }
   // Order matters: the dashboard sees the path before the alias strips /api, and its files are
   // left out of the API's request metrics.
   const dashboard = dashboardDir(config);

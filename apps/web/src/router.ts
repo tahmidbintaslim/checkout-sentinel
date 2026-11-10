@@ -10,6 +10,7 @@ import MonitorFormView from './views/MonitorFormView.vue';
 import MonitorsView from './views/MonitorsView.vue';
 import NotFoundView from './views/NotFoundView.vue';
 import RunDetailView from './views/RunDetailView.vue';
+import ScanView from './views/ScanView.vue';
 import SettingsView from './views/SettingsView.vue';
 
 /**
@@ -23,6 +24,10 @@ export const routes: RouteRecordRaw[] = [
   { path: '/monitors/:id/edit', name: 'monitor-edit', component: MonitorFormView, props: true },
   { path: '/runs/:id', name: 'run', component: RunDetailView, props: true },
   { path: '/alerts', name: 'alerts', component: AlertsView },
+  // The public scanner; its API routes need no token. The demo has no scanner behind it.
+  import.meta.env.MODE === 'demo'
+    ? { path: '/scan', name: 'scan', redirect: '/' }
+    : { path: '/scan', name: 'scan', component: ScanView },
   // The read-only demo has no API and no token to enter.
   import.meta.env.MODE === 'demo'
     ? { path: '/settings', name: 'settings', redirect: '/' }

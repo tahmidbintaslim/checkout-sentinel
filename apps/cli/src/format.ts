@@ -65,6 +65,13 @@ function formatJourney(journey: JourneyResult, paint: Paint): string[] {
     if (step.screenshot) notes.push(`screenshot: ${step.screenshot}`);
     for (const note of notes) lines.push(paint('gray', `          ${note}`));
   }
+  const fired = [...new Set(journey.steps.flatMap((step) => step.tags ?? []))];
+  if (fired.length > 0) lines.push(paint('gray', `          tags fired: ${fired.join(', ')}`));
+  if (journey.tracking?.missing.length) {
+    lines.push(
+      paint('yellow', `          tracking not firing: ${journey.tracking.missing.join(', ')}`),
+    );
+  }
   if (journey.trace) {
     lines.push(
       paint(

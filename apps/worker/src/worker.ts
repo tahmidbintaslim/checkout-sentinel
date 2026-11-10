@@ -1,7 +1,7 @@
 import type { Server } from 'node:http';
 import { Worker } from 'bullmq';
 import { pino, type Logger } from 'pino';
-import { TargetGuard, targetPolicyFromEnv } from '@checkout-sentinel/core';
+import { TargetGuard, targetPolicyFromEnv, type RunResult } from '@checkout-sentinel/core';
 import {
   AlertDeliveryRepository,
   MonitorRepository,
@@ -13,8 +13,10 @@ import {
 import {
   JOURNEY_QUEUE,
   JourneyScheduler,
+  SCAN_QUEUE,
   createRedis,
   type JourneyJob,
+  type ScanJob,
 } from '@checkout-sentinel/jobs';
 import { BrowserPool } from './browser-pool.js';
 import type { WorkerConfig } from './config.js';
@@ -27,6 +29,7 @@ import {
 import { startMetricsServer } from './http.js';
 import { WorkerMetrics } from './metrics.js';
 import { processJourneyJob, type JobOutcome } from './processor.js';
+import { processScanJob } from './scan.js';
 import { StoreLock } from './store-lock.js';
 
 export interface RunningWorker {
@@ -54,6 +57,7 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
   const db = createDb(config.DATABASE_URL, { max: Math.max(4, config.WORKER_CONCURRENCY * 2) });
   const redis = createRedis(config.REDIS_URL);
   const workerConnection = createRedis(config.REDIS_URL);
+  const scanConnection = createRedis(config.REDIS_URL);
   const scheduler = new JourneyScheduler(redis);
   const metrics = new WorkerMetrics();
   const browsers = new BrowserPool();
@@ -100,6 +104,16 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
   worker.on('failed', (job, error) => {
     log.error({ jobId: job?.id, err: error }, 'job failed');
   });
+  // shortcut: one scan at a time per worker process; raise with its own setting once scans queue up.
+  const scanWorker = new Worker<ScanJob, RunResult>(
+    SCAN_QUEUE,
+    (job, token) => processScanJob(deps, job, token),
+    { connection: scanConnection, concurrency: 1, lockDuration: 120_000 },
+  );
+  scanWorker.on('failed', (job, error) => {
+    log.error({ scanId: job?.id, err: error }, 'scan failed');
+  });
+  scanWorker.on('error', (error) => log.error({ err: error }, 'scan worker error'));
   worker.on('error', (error) => log.error({ err: error }, 'worker error'));
 
   const metricsServer =
@@ -172,11 +186,12 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
   const shutdown = () => {
     closing ??= (async () => {
       log.info('shutting down: waiting for running journeys');
-      await Promise.all([worker.close(), housekeeping?.stop()]);
+      await Promise.all([worker.close(), scanWorker.close(), housekeeping?.stop()]);
       await browsers.close();
       await scheduler.close();
       redis.disconnect();
       workerConnection.disconnect();
+      scanConnection.disconnect();
       housekeepingRedis?.disconnect();
       await db.close();
       await new Promise<void>((resolve) =>

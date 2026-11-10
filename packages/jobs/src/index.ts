@@ -98,3 +98,26 @@ export class JourneyScheduler {
     await this.queue.close();
   }
 }
+
+/**
+ * One-off scans from the public scanner: no monitor, no database row. The worker returns the
+ * RunResult as the job's return value, and BullMQ keeps it for SCAN_RESULT_TTL_SECONDS.
+ */
+export const SCAN_QUEUE = 'store-scans';
+export const SCAN_RESULT_TTL_SECONDS = 24 * 3600;
+
+export const ScanJobSchema = z.object({ url: z.url({ protocol: /^https?$/ }) });
+export type ScanJob = z.infer<typeof ScanJobSchema>;
+
+export const SCAN_JOB_OPTIONS: JobsOptions = {
+  // A scan someone is waiting on is not worth retrying minutes later.
+  attempts: 1,
+  removeOnComplete: { age: SCAN_RESULT_TTL_SECONDS },
+  removeOnFail: { age: SCAN_RESULT_TTL_SECONDS },
+};
+
+export type ScanQueue = Queue<ScanJob>;
+
+export function createScanQueue(connection: Redis): ScanQueue {
+  return new Queue<ScanJob>(SCAN_QUEUE, { connection, defaultJobOptions: SCAN_JOB_OPTIONS });
+}

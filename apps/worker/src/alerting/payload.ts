@@ -41,6 +41,7 @@ export function webhookPayload(context: AlertContext): Record<string, unknown> {
       durationMs: result.durationMs,
       failures: failureSummaries(result),
       slowSteps: decision.slowSteps ?? [],
+      trackingMissing: decision.trackingMissing ?? [],
       ...(context.publicBaseUrl ? { url: `${context.publicBaseUrl}/runs/${runId}` } : {}),
     },
     occurredAt: result.finishedAt,
@@ -56,6 +57,8 @@ function headline(context: AlertContext): string {
       return `Checkout journey recovered: ${name}`;
     case 'slow':
       return `Checkout journey slow: ${name}`;
+    case 'tracking':
+      return `Tracking tag stopped firing: ${name}`;
   }
 }
 
@@ -69,6 +72,9 @@ export function slackPayload(context: AlertContext): { text: string } {
   }
   if (context.decision.kind === 'slow') {
     lines.push(`Slow steps: ${(context.decision.slowSteps ?? []).join(', ')}`);
+  }
+  if (context.decision.kind === 'tracking') {
+    lines.push(`Not firing: ${(context.decision.trackingMissing ?? []).join(', ')}`);
   }
   if (context.publicBaseUrl) lines.push(`${context.publicBaseUrl}/runs/${context.runId}`);
   return { text: lines.join('\n') };
