@@ -1,4 +1,21 @@
+<div align="center">
+
 # checkout-sentinel
+
+**Synthetic add-to-cart and checkout monitoring for Shopify and WooCommerce stores.**
+
+[![CI](https://github.com/tahmidbintaslim/checkout-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/tahmidbintaslim/checkout-sentinel/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/tahmidbintaslim/checkout-sentinel)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/tahmidbintaslim/checkout-sentinel)](https://github.com/tahmidbintaslim/checkout-sentinel/commits/main)
+[![Demo](https://img.shields.io/badge/demo-read--only%20dashboard-informational)](https://checkout-sentinel-demo.vercel.app)
+[![GitHub stars](https://img.shields.io/github/stars/tahmidbintaslim/checkout-sentinel?style=social)](https://github.com/tahmidbintaslim/checkout-sentinel/stargazers)
+
+[Live demo](https://checkout-sentinel-demo.vercel.app) · [Quick start](#quick-start) ·
+[Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
+
+</div>
+
+![The checkout-sentinel dashboard: monitors with status, platform, devices, schedule, last run and counts](docs/images/dashboard-monitors-light.png)
 
 Scheduled synthetic checks for Shopify and WooCommerce stores. A real browser opens a product
 page, adds the product to the cart, confirms the cart changed and loads the checkout page, on a
@@ -7,8 +24,51 @@ it recovers.
 
 It never enters payment details and never places an order.
 
-[![CI](https://github.com/tahmidbintaslim/checkout-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/tahmidbintaslim/checkout-sentinel/actions/workflows/ci.yml)
-License: MIT. Status: v0.2, early. A read-only demo of the dashboard with sample data is described under [Demo](#demo).
+- **Runs as you need it:** a CLI for one-off checks, or an API, worker and dashboard that run
+  monitors on cron schedules (docker compose included).
+- **Says what broke:** each run reports six steps with timings. A failed step keeps its message
+  and a screenshot, and a failed journey keeps its Playwright trace.
+- **Alerts on state changes:** a generic webhook (optionally signed) or Slack, when a
+  monitor starts failing or a step gets slow, and once when it recovers.
+
+Status: v0.2, early. License: MIT. Try the [read-only dashboard demo](https://checkout-sentinel-demo.vercel.app)
+with sample data, described under [Demo](#demo).
+
+## Quick start
+
+Requirements: Node 22.12+, pnpm 11. This checks a local fixture store, so nothing leaves your
+machine.
+
+```bash
+git clone https://github.com/tahmidbintaslim/checkout-sentinel.git && cd checkout-sentinel
+pnpm install && pnpm build
+pnpm --filter @checkout-sentinel/core exec playwright install chromium
+
+pnpm fixtures   # local fixture stores on 127.0.0.1; leave it running
+# in another terminal:
+node apps/cli/dist/main.js run http://127.0.0.1:4015/product/demo-hoodie/   # passes
+node apps/cli/dist/main.js run http://127.0.0.1:4011/products/demo-tee --device mobile   # fails: button hidden on mobile
+```
+
+Point `run` at your own product URL next, or start the scheduled stack with
+[docker compose](#quickstart-self-hosted-with-docker-compose).
+
+## Contents
+
+- [Why](#why)
+- [What you get](#what-you-get)
+- [Quickstart: CLI](#quickstart-cli)
+- [Quickstart: self-hosted with docker compose](#quickstart-self-hosted-with-docker-compose)
+- [Demo](#demo)
+- [Dashboard](#dashboard)
+- [Architecture](#architecture)
+- [How a journey works](#how-a-journey-works)
+- [Alerting](#alerting)
+- [Development](#development)
+- [Limitations](#limitations)
+- [Roadmap](#roadmap)
+- [Contributing and security](#contributing-and-security)
+- [License](#license)
 
 ## Why
 
@@ -292,7 +352,9 @@ lost run finishes after all, are in
 
 ## Demo
 
-A read-only build of the dashboard, with sample data, for a look without running anything:
+A read-only build of the dashboard, with sample data, for a look without running anything. A
+hosted copy is at [checkout-sentinel-demo.vercel.app](https://checkout-sentinel-demo.vercel.app).
+To build and serve it yourself:
 
 ```bash
 pnpm install
@@ -629,6 +691,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
 - More platforms: BigCommerce, Magento (Adobe Commerce), Wix, Squarespace
 - Custom journeys (log in, apply a discount code, check a chosen variant on WooCommerce)
 - More alert channels (email, Microsoft Teams, PagerDuty)
+
+## Contributing and security
+
+Issues and pull requests are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the
+checks to run and the project's rules (no real stores in tests). Report vulnerabilities
+privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

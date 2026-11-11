@@ -1,0 +1,30 @@
+name: Release Please
+
+# Opens and updates a release pull request from conventional commits on main. Merging it tags the
+# release and publishes a GitHub release. Needs Settings > Actions > General > "Allow GitHub
+# Actions to create and approve pull requests".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
