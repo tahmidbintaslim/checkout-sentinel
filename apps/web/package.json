@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@checkout-sentinel/core": "workspace:*",
+    "@clerk/vue": "2.5.19",
     "vue": "^3.5.44",
     "vue-router": "^5.4.0"
   },

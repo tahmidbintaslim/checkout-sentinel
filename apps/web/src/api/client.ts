@@ -1,6 +1,8 @@
 import type { MonitorPatch, MonitorSpecInput } from '@checkout-sentinel/core/schemas';
 import type {
   AlertEntry,
+  ApiKeyEntry,
+  AuthConfig,
   Monitor,
   Page,
   RunDetail,
@@ -26,7 +28,7 @@ export interface ApiClientOptions {
   /** Where the API routes live. The API serves them under /api next to the dashboard. */
   baseUrl?: string;
   /** Read on every request, so a token entered later is used at once. */
-  token: () => string | null;
+  token: () => string | null | Promise<string | null>;
   fetch?: typeof fetch;
   /** Called on every 401, before the error is thrown. */
   onUnauthorized?: () => void;
@@ -72,7 +74,7 @@ export function createApiClient(options: ApiClientOptions) {
     init: { body?: unknown; accept?: string } = {},
   ): Promise<Response> {
     const headers: Record<string, string> = { accept: init.accept ?? 'application/json' };
-    const token = options.token();
+    const token = await options.token();
     if (token) headers.authorization = `Bearer ${token}`;
     if (init.body !== undefined) headers['content-type'] = 'application/json';
     let response: Response;
@@ -109,6 +111,13 @@ export function createApiClient(options: ApiClientOptions) {
     getRun: (id: string) => json<RunDetail>('GET', `/runs/${segment(id)}`),
     listAlerts: (query: { limit?: number; monitorId?: string; before?: string } = {}) =>
       json<Page<AlertEntry>>('GET', withQuery('/alerts', query)),
+    getAuthConfig: () => json<AuthConfig>('GET', '/auth/config'),
+    listApiKeys: () => json<ApiKeyEntry[]>('GET', '/api-keys'),
+    createApiKey: (name: string) =>
+      json<ApiKeyEntry & { key: string }>('POST', '/api-keys', { name }),
+    deleteApiKey: async (id: string): Promise<void> => {
+      await request('DELETE', `/api-keys/${segment(id)}`);
+    },
     getScanConfig: () => json<ScanConfig>('GET', '/scans/config'),
     startScan: (url: string, turnstileToken: string) =>
       json<{ id: string }>('POST', '/scans', { url, turnstileToken }),

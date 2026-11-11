@@ -45,12 +45,13 @@ export class MonitorsService implements OnApplicationBootstrap {
     this.logger.log(`Reconciled ${all.length} monitor schedule(s), removed ${removed} orphan(s)`);
   }
 
-  list(): Promise<MonitorWithState[]> {
-    return this.monitors.list();
+  list(workspaceId: string): Promise<MonitorWithState[]> {
+    return this.monitors.list(workspaceId);
   }
 
-  async get(id: string): Promise<MonitorWithState> {
-    const monitor = await this.monitors.get(id);
+  /** 404 for a monitor of another workspace too, so ids do not leak across workspaces. */
+  async get(id: string, workspaceId: string): Promise<MonitorWithState> {
+    const monitor = await this.monitors.get(id, workspaceId);
     if (!monitor) throw new NotFoundException(`Monitor ${id} not found`);
     return monitor;
   }
@@ -61,16 +62,16 @@ export class MonitorsService implements OnApplicationBootstrap {
     if (issues.length > 0) throw validationError(issues);
   }
 
-  async create(spec: MonitorSpec): Promise<MonitorWithState> {
+  async create(spec: MonitorSpec, workspaceId: string): Promise<MonitorWithState> {
     await this.assertTargetsAllowed(spec);
-    const row = await this.monitors.create(spec);
+    const row = await this.monitors.create(spec, workspaceId);
     await this.scheduler.sync(row);
-    return this.get(row.id);
+    return this.get(row.id, workspaceId);
   }
 
-  async update(id: string, patch: MonitorPatch): Promise<MonitorWithState> {
+  async update(id: string, patch: MonitorPatch, workspaceId: string): Promise<MonitorWithState> {
     await this.assertTargetsAllowed(patch);
-    const row = await this.monitors.update(id, patch).catch((error: unknown) => {
+    const row = await this.monitors.update(id, patch, workspaceId).catch((error: unknown) => {
       if (error instanceof StaleMonitorError) {
         throw new ConflictException(
           `The monitor changed after expectedUpdatedAt (${patch.expectedUpdatedAt}); its updatedAt is now ${error.updatedAt.toISOString()}. Read it again and resend the change.`,
@@ -86,17 +87,17 @@ export class MonitorsService implements OnApplicationBootstrap {
     });
     if (!row) throw new NotFoundException(`Monitor ${id} not found`);
     await this.scheduler.sync(row);
-    return this.get(id);
+    return this.get(id, workspaceId);
   }
 
-  async remove(id: string): Promise<void> {
-    const deleted = await this.monitors.delete(id);
+  async remove(id: string, workspaceId: string): Promise<void> {
+    const deleted = await this.monitors.delete(id, workspaceId);
     if (!deleted) throw new NotFoundException(`Monitor ${id} not found`);
     await this.scheduler.remove(id);
   }
 
-  async runNow(id: string): Promise<{ jobId: string }> {
-    await this.get(id);
+  async runNow(id: string, workspaceId: string): Promise<{ jobId: string }> {
+    await this.get(id, workspaceId);
     return { jobId: await this.scheduler.enqueueNow(id) };
   }
 }

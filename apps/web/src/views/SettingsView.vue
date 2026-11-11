@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import ApiKeys from '../components/ApiKeys.vue';
 import TokenForm from '../components/TokenForm.vue';
 import { authState } from '../auth/state';
 import { usePageTitle } from '../composables/title';
 
-usePageTitle('API token');
+usePageTitle(() => (authState.clerk ? 'API keys' : 'API token'));
 
 // This page holds no API data, so it only hides the 401 prompt. tokenChanged() would remount
 // it and drop the form's confirmation and focus.
@@ -15,9 +16,9 @@ const tokenSaved = () => {
 <template>
   <div class="page">
     <div class="page-header">
-      <h1>API token</h1>
+      <h1>{{ authState.clerk ? 'API keys' : 'API token' }}</h1>
     </div>
-    <div class="card">
+    <div v-if="!authState.clerk" class="card">
       <p>
         When the API runs with <code>API_TOKEN</code>, every request from this dashboard needs it.
         Without <code>API_TOKEN</code> the API accepts requests without a token and you can leave
@@ -25,6 +26,7 @@ const tokenSaved = () => {
       </p>
       <TokenForm @saved="tokenSaved" />
     </div>
+    <ApiKeys />
     <div class="card">
       <h2>API</h2>
       <p>

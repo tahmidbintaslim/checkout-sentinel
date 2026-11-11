@@ -2,6 +2,7 @@ import { Global, Inject, Logger, Module, type OnApplicationShutdown } from '@nes
 import type { Redis } from 'ioredis';
 import {
   AlertDeliveryRepository,
+  ApiKeyRepository,
   MonitorRepository,
   RunRepository,
   createDb,
@@ -19,6 +20,7 @@ import { cloudflareTurnstile, type TurnstileVerifier } from './scans/scans.contr
 import { ApiMetrics } from './metrics/api-metrics.js';
 import {
   API_CONFIG,
+  API_KEY_REPOSITORY,
   API_METRICS,
   DB_HANDLE,
   DELIVERY_REPOSITORY,
@@ -104,6 +106,11 @@ export class InfraModule implements OnApplicationShutdown {
           useFactory: (db: DbHandle) => new AlertDeliveryRepository(db.db),
         },
         {
+          provide: API_KEY_REPOSITORY,
+          inject: [DB_HANDLE],
+          useFactory: (db: DbHandle) => new ApiKeyRepository(db.db),
+        },
+        {
           provide: API_METRICS,
           inject: [DB_HANDLE],
           useFactory: (db: DbHandle) => new ApiMetrics(db),
@@ -118,6 +125,7 @@ export class InfraModule implements OnApplicationShutdown {
         MONITOR_REPOSITORY,
         RUN_REPOSITORY,
         DELIVERY_REPOSITORY,
+        API_KEY_REPOSITORY,
         API_METRICS,
         TARGET_GUARD,
         TURNSTILE_VERIFIER,

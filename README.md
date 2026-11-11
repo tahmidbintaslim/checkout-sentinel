@@ -234,6 +234,21 @@ set `ALLOW_PRIVATE_TARGETS=true` on both the API and the worker. Do not do that 
 people can create monitors. `ALLOWED_TARGET_HOSTS` and `ALLOWED_TARGET_PORTS` allow single
 internal hosts or extra ports instead. Details are in [SECURITY.md](SECURITY.md#ssrf-protection).
 
+### Accounts and workspaces
+
+By default the API is single-tenant: one `API_TOKEN`, one workspace. Set `CLERK_SECRET_KEY`,
+`CLERK_PUBLISHABLE_KEY` and `CLERK_AUTHORIZED_PARTIES` (the dashboard's origin) and people sign
+in with [Clerk](https://clerk.com) instead. Each Clerk organization is a workspace, or the user
+when no organization is active, and every monitor, run, artifact and alert is read and written
+within the caller's workspace only; another workspace's ids answer 404.
+
+- The dashboard shows Clerk's sign-in, a workspace switcher and an account menu.
+- **API keys** (dashboard: API keys, or `POST /api/api-keys`) are per workspace, for scripts and
+  integrations. The key is shown once; only its SHA-256 is stored. Revoking takes effect at once.
+- `API_TOKEN` keeps working beside Clerk and reaches the `default` workspace, which also holds
+  every monitor created before workspaces existed (migration `0004_workspaces`).
+- The worker is unchanged: it runs every workspace's monitors.
+
 ### Public scanner
 
 `SCANNER_ENABLED=true` opens a free scan page at `/scan`: anyone pastes a product URL and gets

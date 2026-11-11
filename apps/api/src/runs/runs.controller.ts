@@ -16,10 +16,11 @@ import {
   ApiProduces,
   ApiTags,
 } from '@nestjs/swagger';
-import type { RunRepository } from '@checkout-sentinel/db';
+import type { MonitorRepository, RunRepository, RunRow } from '@checkout-sentinel/db';
+import { WorkspaceId } from '../common/auth.guard.js';
 import type { ApiConfig } from '../config.js';
 import { toRunSummaryDto } from '../monitors/monitor.mapper.js';
-import { API_CONFIG, RUN_REPOSITORY } from '../tokens.js';
+import { API_CONFIG, MONITOR_REPOSITORY, RUN_REPOSITORY } from '../tokens.js';
 import { artifactContentType, locateArtifact, referencedArtifacts } from './artifacts.js';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
@@ -31,7 +32,14 @@ export class RunsController {
   constructor(
     @Inject(RUN_REPOSITORY) private readonly runs: RunRepository,
     @Inject(API_CONFIG) private readonly config: ApiConfig,
+    @Inject(MONITOR_REPOSITORY) private readonly monitors: MonitorRepository,
   ) {}
+
+  /** The run, if its monitor is in the caller's workspace. */
+  private async scopedRun(id: string, workspaceId: string): Promise<RunRow | null> {
+    const run = await this.runs.get(id);
+    return run && (await this.monitors.get(run.monitorId, workspaceId)) ? run : null;
+  }
 
   @Get(':id')
   @ApiOperation({
@@ -40,8 +48,8 @@ export class RunsController {
       '`artifacts` lists the screenshot and trace files the result names, for GET /runs/{id}/artifacts/{name}.',
   })
   @ApiNotFoundResponse()
-  async get(@Param('id', uuid) id: string) {
-    const run = await this.runs.get(id);
+  async get(@Param('id', uuid) id: string, @WorkspaceId() ws: string) {
+    const run = await this.scopedRun(id, ws);
     if (!run) throw new NotFoundException(`Run ${id} not found`);
     return {
       ...toRunSummaryDto(run),
@@ -61,8 +69,12 @@ export class RunsController {
   @ApiNotFoundResponse({
     description: 'Unknown run, a name the run does not reference, or no such file',
   })
-  async artifact(@Param('id', uuid) id: string, @Param('name') name: string) {
-    const run = await this.runs.get(id);
+  async artifact(
+    @Param('id', uuid) id: string,
+    @Param('name') name: string,
+    @WorkspaceId() ws: string,
+  ) {
+    const run = await this.scopedRun(id, ws);
     const found = run ? await locateArtifact(this.config.ARTIFACTS_DIR, run, name) : null;
     const type = artifactContentType(name);
     if (!found || !type) throw new NotFoundException(`Artifact ${name} of run ${id} not found`);

@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import type {
   AlertChannel,
@@ -7,11 +8,14 @@ import type {
 } from '@checkout-sentinel/core';
 import type { Database } from './client.js';
 import {
+  DEFAULT_WORKSPACE,
   alertDeliveries,
+  apiKeys,
   monitorState,
   monitors,
   runs,
   type AlertDeliveryRow,
+  type ApiKeyRow,
   type MonitorRow,
   type MonitorStateRow,
   type RunRow,
@@ -90,14 +94,20 @@ function specToRow(spec: Partial<MonitorSpec>) {
  */
 const nextUpdatedAt = sql`greatest(now(), ${monitors.updatedAt} + interval '1 millisecond')`;
 
+/** The monitor with this id, and in this workspace when one is given (API calls always give it). */
+function monitorWhere(id: string, workspaceId?: string) {
+  return and(eq(monitors.id, id), workspaceId ? eq(monitors.workspaceId, workspaceId) : undefined);
+}
+
 export class MonitorRepository {
   constructor(private readonly db: Database) {}
 
-  async create(spec: MonitorSpec): Promise<MonitorRow> {
+  async create(spec: MonitorSpec, workspaceId = DEFAULT_WORKSPACE): Promise<MonitorRow> {
     return this.db.transaction(async (tx) => {
       const [row] = await tx
         .insert(monitors)
         .values({
+          workspaceId,
           name: spec.name,
           url: spec.url,
           platform: spec.platform,
@@ -117,11 +127,13 @@ export class MonitorRepository {
     });
   }
 
-  async list(): Promise<MonitorWithState[]> {
+  /** One workspace's monitors, or every monitor (schedule reconciliation) without one. */
+  async list(workspaceId?: string): Promise<MonitorWithState[]> {
     const rows = await this.db
       .select()
       .from(monitors)
       .leftJoin(monitorState, eq(monitorState.monitorId, monitors.id))
+      .where(workspaceId ? eq(monitors.workspaceId, workspaceId) : undefined)
       .orderBy(desc(monitors.createdAt));
     return rows.map((r) => ({ ...r.monitors, state: r.monitor_state }));
   }
@@ -135,12 +147,12 @@ export class MonitorRepository {
     return this.db.select().from(monitors).where(eq(monitors.enabled, true));
   }
 
-  async get(id: string): Promise<MonitorWithState | null> {
+  async get(id: string, workspaceId?: string): Promise<MonitorWithState | null> {
     const [row] = await this.db
       .select()
       .from(monitors)
       .leftJoin(monitorState, eq(monitorState.monitorId, monitors.id))
-      .where(eq(monitors.id, id));
+      .where(monitorWhere(id, workspaceId));
     return row ? { ...row.monitors, state: row.monitor_state } : null;
   }
 
@@ -151,11 +163,15 @@ export class MonitorRepository {
    * resolved against that same list. Throws UnknownStoredChannelError when a reference points
    * past the stored list.
    */
-  async update(id: string, patch: MonitorUpdate): Promise<MonitorRow | null> {
+  async update(id: string, patch: MonitorUpdate, workspaceId?: string): Promise<MonitorRow | null> {
     const { alerts, expectedUpdatedAt, ...rest } = patch;
     if (expectedUpdatedAt !== undefined || alerts?.some((channel) => channel.type === 'stored')) {
       return this.db.transaction(async (tx) => {
-        const [current] = await tx.select().from(monitors).where(eq(monitors.id, id)).for('update');
+        const [current] = await tx
+          .select()
+          .from(monitors)
+          .where(monitorWhere(id, workspaceId))
+          .for('update');
         if (!current) return null;
         // Clients see updatedAt in milliseconds, and every write moves it on by at least one.
         if (
@@ -183,19 +199,19 @@ export class MonitorRepository {
       ...rest,
       ...(alerts !== undefined ? { alerts: resolveStoredChannels(alerts, []) } : {}),
     });
-    if (Object.keys(values).length === 0) return this.get(id);
+    if (Object.keys(values).length === 0) return this.get(id, workspaceId);
     const [row] = await this.db
       .update(monitors)
       .set({ ...values, updatedAt: nextUpdatedAt })
-      .where(eq(monitors.id, id))
+      .where(monitorWhere(id, workspaceId))
       .returning();
     return row ?? null;
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, workspaceId?: string): Promise<boolean> {
     const deleted = await this.db
       .delete(monitors)
-      .where(eq(monitors.id, id))
+      .where(monitorWhere(id, workspaceId))
       .returning({ id: monitors.id });
     return deleted.length > 0;
   }
@@ -524,6 +540,8 @@ export class AlertDeliveryRepository {
     limit: number;
     monitorId?: string | undefined;
     before?: string | undefined;
+    /** Only monitors of this workspace. */
+    workspaceId?: string | undefined;
   }): Promise<AlertDeliveryPage> {
     const rows = await this.db
       .select({ delivery: alertDeliveries, monitorName: monitors.name })
@@ -531,6 +549,7 @@ export class AlertDeliveryRepository {
       .innerJoin(monitors, eq(monitors.id, alertDeliveries.monitorId))
       .where(
         and(
+          options.workspaceId ? eq(monitors.workspaceId, options.workspaceId) : undefined,
           options.monitorId ? eq(alertDeliveries.monitorId, options.monitorId) : undefined,
           options.before
             ? sql`(${alertDeliveries.createdAt}, ${alertDeliveries.id}) < (
@@ -555,4 +574,49 @@ export interface AlertDeliveryPage {
   items: AlertLogEntry[];
   /** Pass as `before` to get the next (older) page. */
   nextCursor: string | null;
+}
+
+/** API keys start with this, so the auth guard can tell them from session tokens. */
+export const API_KEY_PREFIX = 'cs_';
+
+const hashKey = (key: string) => createHash('sha256').update(key).digest('hex');
+
+export class ApiKeyRepository {
+  constructor(private readonly db: Database) {}
+
+  /** Creates a key; the plain key is returned this once and never stored. */
+  async create(workspaceId: string, name: string): Promise<{ row: ApiKeyRow; key: string }> {
+    const key = `${API_KEY_PREFIX}${randomBytes(32).toString('base64url')}`;
+    const [row] = await this.db
+      .insert(apiKeys)
+      .values({ workspaceId, name, tokenHash: hashKey(key), prefix: key.slice(0, 10) })
+      .returning();
+    if (!row) throw new Error('insert returned no row');
+    return { row, key };
+  }
+
+  async list(workspaceId: string): Promise<ApiKeyRow[]> {
+    return this.db
+      .select()
+      .from(apiKeys)
+      .where(eq(apiKeys.workspaceId, workspaceId))
+      .orderBy(desc(apiKeys.createdAt));
+  }
+
+  async delete(id: string, workspaceId: string): Promise<boolean> {
+    const deleted = await this.db
+      .delete(apiKeys)
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.workspaceId, workspaceId)))
+      .returning({ id: apiKeys.id });
+    return deleted.length > 0;
+  }
+
+  /** The workspace a key belongs to, or null for an unknown or revoked key. */
+  async workspaceFor(key: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ workspaceId: apiKeys.workspaceId })
+      .from(apiKeys)
+      .where(eq(apiKeys.tokenHash, hashKey(key)));
+    return row?.workspaceId ?? null;
+  }
 }

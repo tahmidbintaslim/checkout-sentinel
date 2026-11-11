@@ -2,6 +2,7 @@
 import { nextTick, ref } from 'vue';
 import { RouterLink, RouterView, useRouter } from 'vue-router';
 import { authState, tokenChanged } from './auth/state';
+import ClerkSession from './components/ClerkSession.vue';
 import TokenForm from './components/TokenForm.vue';
 
 const main = ref<HTMLElement | null>(null);
@@ -33,10 +34,13 @@ router.afterEach((to, from) => {
             <RouterLink to="/scan" class="nav-link" active-class="active">Free scan</RouterLink>
           </li>
           <li v-if="!demo">
-            <RouterLink to="/settings" class="nav-link" active-class="active">API token</RouterLink>
+            <RouterLink to="/settings" class="nav-link" active-class="active">
+              {{ authState.clerk ? 'API keys' : 'API token' }}
+            </RouterLink>
           </li>
         </ul>
       </nav>
+      <ClerkSession v-if="authState.clerk" header />
     </div>
   </header>
   <p v-if="demo" class="demo-banner notice notice-info" role="note">
@@ -45,7 +49,11 @@ router.afterEach((to, from) => {
   </p>
 
   <main id="main" ref="main" tabindex="-1">
-    <section v-if="authState.required" class="page auth" aria-labelledby="auth-title">
+    <section
+      v-if="authState.required && !authState.clerk"
+      class="page auth"
+      aria-labelledby="auth-title"
+    >
       <div class="notice notice-info" role="alert">
         <h2 id="auth-title">The API needs a token</h2>
         <p>The API answered 401. Enter the token it was started with to continue.</p>
@@ -57,7 +65,10 @@ router.afterEach((to, from) => {
     <!-- Keyed on the path only: a hash (summary links, the skip link) or query (the alert filter)
          change must not remount the page and drop what was typed or focused. -->
     <RouterView v-slot="{ Component, route }">
-      <component :is="Component" :key="`${route.path}#${authState.version}`" />
+      <ClerkSession v-if="authState.clerk" :open="route.name === 'scan'">
+        <component :is="Component" :key="`${route.path}#${authState.version}`" />
+      </ClerkSession>
+      <component :is="Component" v-else :key="`${route.path}#${authState.version}`" />
     </RouterView>
   </main>
 </template>
