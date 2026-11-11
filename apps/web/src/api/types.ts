@@ -113,3 +113,16 @@ export interface Scan {
   result?: RunResult;
   error?: string;
 }
+
+/** GET /auth/config: a Clerk publishable key when the API signs people in with Clerk. */
+export interface AuthConfig {
+  clerkPublishableKey: string | null;
+}
+
+/** A workspace API key as listed; the key itself is only in the create response. */
+export interface ApiKeyEntry {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+}

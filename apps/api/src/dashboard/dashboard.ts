@@ -25,23 +25,43 @@ const API_ONLY_SEGMENTS = new Set(['api', 'docs', 'health', 'metrics']);
  * artifacts are fetched with the bearer token. The only outside origin is Cloudflare Turnstile,
  * which the public scanner page loads.
  */
-export const DASHBOARD_CSP = [
-  "default-src 'self'",
-  // Cloudflare Turnstile, for the public scanner page.
-  "script-src 'self' https://challenges.cloudflare.com",
-  'frame-src https://challenges.cloudflare.com',
-  "style-src 'self'",
-  "img-src 'self' blob: data:",
-  "connect-src 'self'",
-  "font-src 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join('; ');
+export const DASHBOARD_CSP = dashboardCsp();
 
-const PAGE_HEADERS: Record<string, string> = {
-  'content-security-policy': DASHBOARD_CSP,
+/**
+ * The Frontend API host a Clerk publishable key names: the key is "pk_test_" or "pk_live_"
+ * followed by base64 of "<host>$". Null when the key does not decode to a host name.
+ */
+export function clerkFrontendHost(publishableKey: string): string | null {
+  const encoded = publishableKey.replace(/^pk_(test|live)_/, '');
+  const host = Buffer.from(encoded, 'base64').toString('utf8').replace(/\$$/, '');
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host) ? host : null;
+}
+
+/**
+ * With a Clerk host, the policy also allows what Clerk's sign-in components need (its docs,
+ * "CSP headers"): scripts and requests to that host, its image host, blob workers, and inline
+ * styles, which Clerk injects at runtime.
+ */
+export function dashboardCsp(clerkHost?: string): string {
+  const clerk = clerkHost ? ` https://${clerkHost}` : '';
+  return [
+    "default-src 'self'",
+    // Cloudflare Turnstile, for the public scanner page (and Clerk's bot protection).
+    `script-src 'self' https://challenges.cloudflare.com${clerk}`,
+    'frame-src https://challenges.cloudflare.com',
+    clerkHost ? "style-src 'self' 'unsafe-inline'" : "style-src 'self'",
+    `img-src 'self' blob: data:${clerkHost ? ' https://img.clerk.com' : ''}`,
+    `connect-src 'self'${clerk}`,
+    ...(clerkHost ? ["worker-src 'self' blob:"] : []),
+    "font-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
+
+const BASE_PAGE_HEADERS: Record<string, string> = {
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
   'referrer-policy': 'no-referrer',
@@ -79,7 +99,8 @@ export function hasDashboardBuild(dir: string): boolean {
  * /monitors/<id> opened in a browser shows the dashboard page, while the same request from a
  * script still reaches the API. Must run before apiPrefixAlias, which rewrites the path.
  */
-export function dashboardHandler(dir: string): RequestHandler {
+export function dashboardHandler(dir: string, csp = DASHBOARD_CSP): RequestHandler {
+  const PAGE_HEADERS = { ...BASE_PAGE_HEADERS, 'content-security-policy': csp };
   const root = path.resolve(dir);
   const indexFile = path.join(root, 'index.html');
   const files = express.static(root, {

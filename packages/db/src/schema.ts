@@ -32,6 +32,11 @@ export const monitors = pgTable(
   'monitors',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * Who owns the monitor: a Clerk organization or user id in the hosted product, DEFAULT_WORKSPACE
+     * on a self-hosted install. Every API read and write is scoped by it.
+     */
+    workspaceId: text('workspace_id').notNull().default('default'),
     name: text('name').notNull(),
     url: text('url').notNull(),
     platform: requestedPlatform('platform').notNull().default('auto'),
@@ -51,7 +56,10 @@ export const monitors = pgTable(
     enabled: boolean('enabled').notNull().default(true),
     ...timestamps,
   },
-  (table) => [index('monitors_created_at_idx').on(table.createdAt)],
+  (table) => [
+    index('monitors_created_at_idx').on(table.createdAt),
+    index('monitors_workspace_created_idx').on(table.workspaceId, table.createdAt),
+  ],
 );
 
 export const runs = pgTable(
@@ -153,3 +161,25 @@ export type NewMonitorRow = typeof monitors.$inferInsert;
 export type RunRow = typeof runs.$inferSelect;
 export type MonitorStateRow = typeof monitorState.$inferSelect;
 export type AlertDeliveryRow = typeof alertDeliveries.$inferSelect;
+
+/** The workspace of a self-hosted install, and of requests made with API_TOKEN. */
+export const DEFAULT_WORKSPACE = 'default';
+
+/** Per-workspace API keys. Only a SHA-256 of the key is stored; the key is shown once. */
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: text('workspace_id').notNull(),
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    /** The key's first characters, so people can tell their keys apart. */
+    prefix: text('prefix').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('api_keys_token_hash_idx').on(table.tokenHash),
+    index('api_keys_workspace_idx').on(table.workspaceId, table.createdAt),
+  ],
+);
+export type ApiKeyRow = typeof apiKeys.$inferSelect;

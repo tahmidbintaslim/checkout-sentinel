@@ -11,6 +11,8 @@ import type { ApiConfig } from './config.js';
 import {
   DEFAULT_DASHBOARD_DIR,
   apiPrefixAlias,
+  clerkFrontendHost,
+  dashboardCsp,
   dashboardHandler,
   hasDashboardBuild,
 } from './dashboard/dashboard.js';
@@ -64,7 +66,13 @@ export async function createApp(
   // Order matters: the dashboard sees the path before the alias strips /api, and its files are
   // left out of the API's request metrics.
   const dashboard = dashboardDir(config);
-  if (dashboard) app.use(dashboardHandler(dashboard));
+  if (dashboard) {
+    const clerkHost =
+      (config.CLERK_SECRET_KEY || config.CLERK_JWT_KEY) && config.CLERK_PUBLISHABLE_KEY
+        ? clerkFrontendHost(config.CLERK_PUBLISHABLE_KEY)
+        : null;
+    app.use(dashboardHandler(dashboard, dashboardCsp(clerkHost ?? undefined)));
+  }
   app.use(app.get<ApiMetrics>(API_METRICS).middleware());
   app.use(apiPrefixAlias());
 

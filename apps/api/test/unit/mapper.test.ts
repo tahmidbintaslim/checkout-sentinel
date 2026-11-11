@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { loadApiConfig, redactChannel } from '@checkout-sentinel/api';
+import {
+  clerkFrontendHost,
+  dashboardCsp,
+  loadApiConfig,
+  redactChannel,
+} from '@checkout-sentinel/api';
 
 describe('redactChannel', () => {
   it('masks Slack webhook URLs and hides webhook secrets', () => {
@@ -57,6 +62,32 @@ describe('loadApiConfig', () => {
       /API_TOKEN/,
     );
     expect(() => loadApiConfig({})).toThrow(/DATABASE_URL/);
+  });
+
+  it('needs the publishable key and allowed origins with Clerk', () => {
+    expect(() =>
+      loadApiConfig({ DATABASE_URL: 'postgres://x', CLERK_SECRET_KEY: 'sk_test_x' }),
+    ).toThrow(/CLERK_AUTHORIZED_PARTIES/);
+    expect(
+      loadApiConfig({
+        DATABASE_URL: 'postgres://x',
+        CLERK_SECRET_KEY: 'sk_test_x',
+        CLERK_PUBLISHABLE_KEY: 'pk_test_abc',
+        CLERK_AUTHORIZED_PARTIES: 'https://a.example, https://b.example',
+      }).CLERK_AUTHORIZED_PARTIES,
+    ).toEqual(['https://a.example', 'https://b.example']);
+  });
+
+  it('allows Clerk in the dashboard CSP only for the host its key names', () => {
+    const key = `pk_test_${Buffer.from('happy-cat-1.clerk.accounts.dev$').toString('base64')}`;
+    expect(clerkFrontendHost(key)).toBe('happy-cat-1.clerk.accounts.dev');
+    expect(
+      clerkFrontendHost(`pk_test_${Buffer.from('x; script-src *$').toString('base64')}`),
+    ).toBeNull();
+    expect(dashboardCsp('happy-cat-1.clerk.accounts.dev')).toContain(
+      "script-src 'self' https://challenges.cloudflare.com https://happy-cat-1.clerk.accounts.dev;",
+    );
+    expect(dashboardCsp()).toContain("style-src 'self';");
   });
 
   it('refuses the public scanner without Turnstile keys', () => {

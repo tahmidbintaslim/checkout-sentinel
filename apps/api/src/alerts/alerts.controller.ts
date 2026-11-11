@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { AlertDeliveryRepository } from '@checkout-sentinel/db';
 import { toAlertDto } from '../monitors/monitor.mapper.js';
 import { DELIVERY_REPOSITORY } from '../tokens.js';
+import { WorkspaceId } from '../common/auth.guard.js';
 
 export const AlertListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -22,8 +23,11 @@ export class AlertsController {
   @Get()
   @ApiOperation({ summary: 'Alert delivery log of every monitor, newest first, keyset paginated' })
   @ApiOkResponse({ description: '{ items, nextCursor }' })
-  async list(@Query({ schema: AlertListQuerySchema }) query: z.infer<typeof AlertListQuerySchema>) {
-    const page = await this.deliveries.listPage(query);
+  async list(
+    @Query({ schema: AlertListQuerySchema }) query: z.infer<typeof AlertListQuerySchema>,
+    @WorkspaceId() ws: string,
+  ) {
+    const page = await this.deliveries.listPage({ ...query, workspaceId: ws });
     return {
       items: page.items.map((entry) => ({
         ...toAlertDto(entry),

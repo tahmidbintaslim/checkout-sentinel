@@ -34,6 +34,7 @@ import type { AlertDeliveryRepository, RunRepository } from '@checkout-sentinel/
 import { DELIVERY_REPOSITORY, RUN_REPOSITORY } from '../tokens.js';
 import { toAlertDto, toMonitorDto, toRunSummaryDto, toStatusDto } from './monitor.mapper.js';
 import { MonitorsService } from './monitors.service.js';
+import { WorkspaceId } from '../common/auth.guard.js';
 
 export const RunListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -55,21 +56,21 @@ export class MonitorsController {
 
   @Get()
   @ApiOperation({ summary: 'List monitors with their latest status' })
-  async list() {
-    return (await this.service.list()).map(toMonitorDto);
+  async list(@WorkspaceId() ws: string) {
+    return (await this.service.list(ws)).map(toMonitorDto);
   }
 
   @Post()
   @ApiOperation({ summary: 'Create a monitor and schedule it' })
   @ApiCreatedResponse({ description: 'The created monitor' })
-  async create(@Body({ schema: MonitorSpecSchema }) body: MonitorSpec) {
-    return toMonitorDto(await this.service.create(body));
+  async create(@Body({ schema: MonitorSpecSchema }) body: MonitorSpec, @WorkspaceId() ws: string) {
+    return toMonitorDto(await this.service.create(body, ws));
   }
 
   @Get(':id')
   @ApiNotFoundResponse()
-  async get(@Param('id', uuid) id: string) {
-    return toMonitorDto(await this.service.get(id));
+  async get(@Param('id', uuid) id: string, @WorkspaceId() ws: string) {
+    return toMonitorDto(await this.service.get(id, ws));
   }
 
   @Patch(':id')
@@ -82,24 +83,25 @@ export class MonitorsController {
   @ApiNotFoundResponse()
   async update(
     @Param('id', uuid) id: string,
+    @WorkspaceId() ws: string,
     @Body({ schema: MonitorPatchSchema }) body: MonitorPatch,
   ) {
-    return toMonitorDto(await this.service.update(id, body));
+    return toMonitorDto(await this.service.update(id, body, ws));
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiNoContentResponse({ description: 'Deleted with its runs, state and alert log' })
   @ApiNotFoundResponse()
-  async remove(@Param('id', uuid) id: string): Promise<void> {
-    await this.service.remove(id);
+  async remove(@Param('id', uuid) id: string, @WorkspaceId() ws: string): Promise<void> {
+    await this.service.remove(id, ws);
   }
 
   @Get(':id/status')
   @ApiOperation({ summary: 'Latest status: health, last run, consecutive failures, slow steps' })
   @ApiNotFoundResponse()
-  async status(@Param('id', uuid) id: string) {
-    return toStatusDto((await this.service.get(id)).state);
+  async status(@Param('id', uuid) id: string, @WorkspaceId() ws: string) {
+    return toStatusDto((await this.service.get(id, ws)).state);
   }
 
   @Get(':id/runs')
@@ -108,9 +110,10 @@ export class MonitorsController {
   @ApiNotFoundResponse()
   async runHistory(
     @Param('id', uuid) id: string,
+    @WorkspaceId() ws: string,
     @Query({ schema: RunListQuerySchema }) query: z.infer<typeof RunListQuerySchema>,
   ) {
-    await this.service.get(id);
+    await this.service.get(id, ws);
     const page = await this.runs.listForMonitor(
       id,
       query.limit,
@@ -124,15 +127,15 @@ export class MonitorsController {
   @ApiOperation({ summary: 'Queue a run now, outside the schedule' })
   @ApiAcceptedResponse({ description: '{ jobId }' })
   @ApiNotFoundResponse()
-  async runNow(@Param('id', uuid) id: string) {
-    return this.service.runNow(id);
+  async runNow(@Param('id', uuid) id: string, @WorkspaceId() ws: string) {
+    return this.service.runNow(id, ws);
   }
 
   @Get(':id/alerts')
   @ApiOperation({ summary: 'Alert delivery log' })
   @ApiNotFoundResponse()
-  async alerts(@Param('id', uuid) id: string) {
-    await this.service.get(id);
+  async alerts(@Param('id', uuid) id: string, @WorkspaceId() ws: string) {
+    await this.service.get(id, ws);
     return (await this.deliveries.listForMonitor(id)).map(toAlertDto);
   }
 }

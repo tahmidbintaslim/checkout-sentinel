@@ -23,6 +23,14 @@ All notable changes are recorded here. The format follows
   `0003_expect_tracking` adds `monitors.expect_tracking`, `monitor_state.tracking_missing` and the
   `tracking` alert kind.
 
+- Accounts and workspaces, optional (`CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`,
+  `CLERK_AUTHORIZED_PARTIES`, optionally `CLERK_JWT_KEY`): the API accepts Clerk session tokens
+  and the dashboard signs in with Clerk. A Clerk organization, or the user without one, is a
+  workspace; monitors, runs, artifacts and alerts are scoped to it. Per-workspace API keys
+  (`GET/POST /api/api-keys`, `DELETE /api/api-keys/:id`, keys start with `cs_`, stored hashed)
+  and a public `GET /api/auth/config`. Migration `0004_workspaces` adds `monitors.workspace_id`
+  (existing monitors get `default`, the workspace `API_TOKEN` reaches) and `api_keys`. Without
+  the Clerk variables nothing changes.
 - Public scanner, off by default (`SCANNER_ENABLED`): a `/scan` page and `POST /api/scans`,
   `GET /api/scans/:id`, `GET /api/scans/config`, all without the API token. One journey per
   scan on both devices, with the tags that fired; Cloudflare Turnstile, a per-address hourly

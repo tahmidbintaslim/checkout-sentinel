@@ -29,6 +29,13 @@
       "when": 1794215549393,
       "tag": "0003_expect_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794233732223,
+      "tag": "0004_workspaces",
+      "breakpoints": true
     }
   ]
 }

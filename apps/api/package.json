@@ -21,6 +21,7 @@
     "@checkout-sentinel/core": "workspace:*",
     "@checkout-sentinel/db": "workspace:*",
     "@checkout-sentinel/jobs": "workspace:*",
+    "@clerk/backend": "3.27.0",
     "@nestjs/common": "^12.2.0",
     "@nestjs/core": "^12.2.0",
     "@nestjs/platform-express": "^12.2.0",
