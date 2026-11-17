@@ -45,6 +45,8 @@ const EnvSchema = TargetPolicyEnvSchema.extend({
         .filter(Boolean),
     )
     .optional(),
+  /** The Shopify app's client secret; signs its webhooks. Without it /webhooks/shopify answers 401. */
+  SHOPIFY_API_SECRET: z.string().min(1).optional(),
   /** Public scanner: POST /scans and GET /scans/:id without the API token. Off by default. */
   SCANNER_ENABLED: booleanFromEnv.default(false),
   /** Cloudflare Turnstile keys; required with the scanner, since every scan runs a browser. */

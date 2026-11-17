@@ -3,6 +3,7 @@ import type { Redis } from 'ioredis';
 import {
   AlertDeliveryRepository,
   ApiKeyRepository,
+  ChangeEventRepository,
   MonitorRepository,
   RunRepository,
   createDb,
@@ -22,6 +23,7 @@ import {
   API_CONFIG,
   API_KEY_REPOSITORY,
   API_METRICS,
+  CHANGE_REPOSITORY,
   DB_HANDLE,
   DELIVERY_REPOSITORY,
   MONITOR_REPOSITORY,
@@ -111,6 +113,11 @@ export class InfraModule implements OnApplicationShutdown {
           useFactory: (db: DbHandle) => new ApiKeyRepository(db.db),
         },
         {
+          provide: CHANGE_REPOSITORY,
+          inject: [DB_HANDLE],
+          useFactory: (db: DbHandle) => new ChangeEventRepository(db.db),
+        },
+        {
           provide: API_METRICS,
           inject: [DB_HANDLE],
           useFactory: (db: DbHandle) => new ApiMetrics(db),
@@ -126,6 +133,7 @@ export class InfraModule implements OnApplicationShutdown {
         RUN_REPOSITORY,
         DELIVERY_REPOSITORY,
         API_KEY_REPOSITORY,
+        CHANGE_REPOSITORY,
         API_METRICS,
         TARGET_GUARD,
         TURNSTILE_VERIFIER,

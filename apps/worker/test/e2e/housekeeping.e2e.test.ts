@@ -152,6 +152,7 @@ describe.skipIf(!services.available)('housekeeping end to end (Postgres + Redis)
       runs,
       state: new StateRepository(db.db),
       deliveries,
+      changes: { listForStore: async () => [] },
       lock: new StoreLock(redis, 1, 600_000, `test-store-lock-${randomUUID()}`),
       browsers,
       metrics: new WorkerMetrics({ defaultMetrics: false }),

@@ -89,6 +89,27 @@ describe('payloads', () => {
   });
 });
 
+describe('recent changes in alerts', () => {
+  const recentChanges = [
+    {
+      summary: 'Theme published: Summer 2026',
+      source: 'shopify',
+      occurredAt: '2026-10-25T09:42:00.000Z',
+    },
+  ];
+  it('lists the likely causes in Slack text and the webhook body', () => {
+    const { text } = slackPayload({ ...context, recentChanges });
+    expect(text).toContain('Changed on the store shortly before:');
+    expect(text).toContain('- 2026-10-25 09:42 UTC: Theme published: Summer 2026');
+    expect(webhookPayload({ ...context, recentChanges })).toMatchObject({ run: { recentChanges } });
+  });
+
+  it('says nothing about changes when none were recorded', () => {
+    expect(slackPayload(context).text).not.toContain('Changed on the store');
+    expect(webhookPayload(context)).toMatchObject({ run: { recentChanges: [] } });
+  });
+});
+
 describe('deliverAlert', () => {
   const received: Array<{ headers: IncomingMessage['headers']; body: string }> = [];
   let status = 200;

@@ -183,3 +183,45 @@ export const apiKeys = pgTable(
   ],
 );
 export type ApiKeyRow = typeof apiKeys.$inferSelect;
+
+/**
+ * Something that changed on a store: a theme published, an app or plugin updated, a deploy.
+ * Stored per workspace and store host (the host of the monitored URLs, lower case), so failure
+ * alerts can name what changed shortly before a check broke.
+ */
+export const changeEvents = pgTable(
+  'change_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: text('workspace_id').notNull(),
+    host: text('host').notNull(),
+    /** Who reported it: shopify (webhook), wordpress (plugin) or api (anything else). */
+    source: text('source').notNull(),
+    /** Short machine name, for example theme_published or plugin_updated. */
+    kind: text('kind').notNull(),
+    summary: text('summary').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    /** The sender's id for the event (Shopify's webhook id); a repeat delivery is ignored. */
+    externalId: text('external_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('change_events_store_idx').on(table.workspaceId, table.host, table.occurredAt.desc()),
+    uniqueIndex('change_events_external_idx').on(table.source, table.externalId),
+  ],
+);
+export type ChangeEventRow = typeof changeEvents.$inferSelect;
+
+/**
+ * Shopify shops that installed the app, and the workspace and store host each belongs to.
+ * Filled by the install flow; webhooks from shops not listed here are acknowledged and dropped.
+ */
+export const shopifyShops = pgTable('shopify_shops', {
+  /** The shop's permanent domain, for example example.myshopify.com. */
+  shopDomain: text('shop_domain').primaryKey(),
+  workspaceId: text('workspace_id').notNull(),
+  /** The store's public host, matching its monitors' URLs. */
+  host: text('host').notNull(),
+  installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
+});
+export type ShopifyShopRow = typeof shopifyShops.$inferSelect;

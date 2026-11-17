@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { AlertsController } from './alerts/alerts.controller.js';
 import { AuthController } from './auth/auth.controller.js';
+import { ChangesController } from './changes/changes.controller.js';
 import { ApiTokenGuard } from './common/auth.guard.js';
 import type { ApiConfig } from './config.js';
 import { HealthController } from './health/health.controller.js';
@@ -40,6 +41,7 @@ export class AppModule {
         AlertsController,
         ScansController,
         AuthController,
+        ChangesController,
       ],
       providers: [MonitorsService, { provide: APP_GUARD, useClass: ApiTokenGuard }],
     };

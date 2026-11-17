@@ -12,6 +12,7 @@ import {
 } from '@checkout-sentinel/core';
 import type {
   AlertDeliveryRepository,
+  ChangeEventRepository,
   MonitorRepository,
   MonitorRow,
   RunRepository,
@@ -30,6 +31,7 @@ export interface ProcessorDeps {
   runs: RunRepository;
   state: StateRepository;
   deliveries: AlertDeliveryRepository;
+  changes: Pick<ChangeEventRepository, 'listForStore'>;
   lock: StoreLock;
   browsers: BrowserPool;
   metrics: WorkerMetrics;
@@ -59,6 +61,9 @@ export type JobOutcome =
   | { outcome: 'discarded'; runId: string; status: RunResult['status']; reason: string };
 
 /** Delay before retrying a job whose store is busy; jittered so waiting jobs spread out. */
+const RECENT_CHANGES_WINDOW_MS = 24 * 3600_000;
+const RECENT_CHANGES_LISTED = 3;
+
 export function lockRetryDelayMs(): number {
   return 15_000 + Math.floor(Math.random() * 15_000);
 }
@@ -72,6 +77,26 @@ async function sendAlerts(
 ): Promise<string[]> {
   const sent: string[] = [];
   const channels: AlertChannel[] = monitor.alerts;
+  // Breakage is often caused by a change; name the ones from the day before this run.
+  const startedAt = new Date(result.startedAt);
+  const recentChanges = decisions.some((d) => d.kind === 'failure' || d.kind === 'tracking')
+    ? (
+        await deps.changes
+          .listForStore(monitor.workspaceId, new URL(monitor.url).hostname, {
+            limit: RECENT_CHANGES_LISTED,
+            since: new Date(startedAt.getTime() - RECENT_CHANGES_WINDOW_MS),
+            until: startedAt,
+          })
+          .catch((error: unknown) => {
+            deps.logger.warn({ err: error, runId }, 'could not read recent changes');
+            return [];
+          })
+      ).map((change) => ({
+        summary: change.summary,
+        source: change.source,
+        occurredAt: change.occurredAt.toISOString(),
+      }))
+    : [];
   for (const decision of decisions) {
     for (const [channelIndex, channel] of channels.entries()) {
       const claim = await deps.deliveries.claim({
@@ -95,6 +120,7 @@ async function sendAlerts(
           runId,
           result,
           decision,
+          ...(decision.kind === 'failure' || decision.kind === 'tracking' ? { recentChanges } : {}),
           ...(deps.config.publicBaseUrl ? { publicBaseUrl: deps.config.publicBaseUrl } : {}),
         },
         {

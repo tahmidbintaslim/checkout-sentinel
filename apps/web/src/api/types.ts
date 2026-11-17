@@ -126,3 +126,13 @@ export interface ApiKeyEntry {
   prefix: string;
   createdAt: string;
 }
+
+/** A change recorded on a store (GET /monitors/:id/changes). */
+export interface ChangeEntry {
+  id: string;
+  host: string;
+  source: 'shopify' | 'wordpress' | 'api';
+  kind: string;
+  summary: string;
+  occurredAt: string;
+}
