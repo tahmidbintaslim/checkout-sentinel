@@ -8,6 +8,14 @@ export interface AlertContext {
   decision: AlertDecision;
   /** Base URL of the API, for links back to the run. Optional. */
   publicBaseUrl?: string;
+  /** Changes recorded on the store shortly before the run, newest first: the likely causes. */
+  recentChanges?: RecentChange[];
+}
+
+export interface RecentChange {
+  summary: string;
+  source: string;
+  occurredAt: string;
 }
 
 export interface FailureSummary {
@@ -42,6 +50,7 @@ export function webhookPayload(context: AlertContext): Record<string, unknown> {
       failures: failureSummaries(result),
       slowSteps: decision.slowSteps ?? [],
       trackingMissing: decision.trackingMissing ?? [],
+      recentChanges: context.recentChanges ?? [],
       ...(context.publicBaseUrl ? { url: `${context.publicBaseUrl}/runs/${runId}` } : {}),
     },
     occurredAt: result.finishedAt,
@@ -75,6 +84,12 @@ export function slackPayload(context: AlertContext): { text: string } {
   }
   if (context.decision.kind === 'tracking') {
     lines.push(`Not firing: ${(context.decision.trackingMissing ?? []).join(', ')}`);
+  }
+  if (context.recentChanges?.length) {
+    lines.push('Changed on the store shortly before:');
+    for (const change of context.recentChanges) {
+      lines.push(`- ${change.occurredAt.slice(0, 16).replace('T', ' ')} UTC: ${change.summary}`);
+    }
   }
   if (context.publicBaseUrl) lines.push(`${context.publicBaseUrl}/runs/${context.runId}`);
   return { text: lines.join('\n') };

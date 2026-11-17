@@ -3,6 +3,7 @@ import type {
   AlertEntry,
   ApiKeyEntry,
   AuthConfig,
+  ChangeEntry,
   Monitor,
   Page,
   RunDetail,
@@ -111,6 +112,8 @@ export function createApiClient(options: ApiClientOptions) {
     getRun: (id: string) => json<RunDetail>('GET', `/runs/${segment(id)}`),
     listAlerts: (query: { limit?: number; monitorId?: string; before?: string } = {}) =>
       json<Page<AlertEntry>>('GET', withQuery('/alerts', query)),
+    listChanges: (monitorId: string) =>
+      json<ChangeEntry[]>('GET', `/monitors/${segment(monitorId)}/changes`),
     getAuthConfig: () => json<AuthConfig>('GET', '/auth/config'),
     listApiKeys: () => json<ApiKeyEntry[]>('GET', '/api-keys'),
     createApiKey: (name: string) =>

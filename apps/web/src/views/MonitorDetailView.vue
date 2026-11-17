@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { AlertEntry, Monitor, RunDetail, RunSummary } from '../api/types';
+import ChangeTimeline from '../components/ChangeTimeline.vue';
 import ErrorNotice from '../components/ErrorNotice.vue';
 import RunsTable from '../components/RunsTable.vue';
 import StatusBadge from '../components/StatusBadge.vue';
@@ -12,6 +13,8 @@ import { usePageTitle } from '../composables/title';
 import { capitalize, formatDateTime, formatDuration, platformName, stepLabel } from '../lib/format';
 
 const props = defineProps<{ id: string }>();
+// Only `vite build --mode demo` sets this.
+const demo = import.meta.env.MODE === 'demo';
 
 const PAGE_SIZE = 10;
 /** How long a queued run is waited for before fast polling stops. */
@@ -269,6 +272,9 @@ const channelLabel = (channel: Monitor['alerts'][number]) =>
           </button>
         </div>
       </section>
+
+      <!-- The read-only demo has no change data. -->
+      <ChangeTimeline v-if="!demo" :monitor-id="props.id" />
 
       <section class="card" aria-labelledby="settings-title">
         <h2 id="settings-title">Settings</h2>

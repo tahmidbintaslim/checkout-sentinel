@@ -56,6 +56,8 @@ export async function createApp(
   await migrateIfEnabled(config);
   const app = await NestFactory.create(AppModule.forConfig(config, options), {
     bufferLogs: true,
+    // Shopify signs webhook bodies byte for byte; the parsed JSON cannot be re-serialized to match.
+    rawBody: true,
   });
   app.useLogger(app.get(Logger));
   app.useGlobalPipes(createValidationPipe());

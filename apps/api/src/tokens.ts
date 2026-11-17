@@ -15,3 +15,4 @@ export const TARGET_GUARD = Symbol('TARGET_GUARD');
 export const SCAN_QUEUE_HANDLE = Symbol('SCAN_QUEUE_HANDLE');
 export const TURNSTILE_VERIFIER = Symbol('TURNSTILE_VERIFIER');
 export const API_KEY_REPOSITORY = Symbol('API_KEY_REPOSITORY');
+export const CHANGE_REPOSITORY = Symbol('CHANGE_REPOSITORY');

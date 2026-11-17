@@ -5,6 +5,7 @@ import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MonitorSpecSchema } from '@checkout-sentinel/core';
 import {
+  ChangeEventRepository,
   AlertDeliveryRepository,
   MonitorRepository,
   RunRepository,
@@ -107,6 +108,15 @@ describe.skipIf(!services.available)('worker end to end (Postgres + Redis + Chro
       }),
     );
 
+    // A change recorded on the store before the run is named in the failure alert.
+    await new ChangeEventRepository(db.db).add({
+      workspaceId: monitor.workspaceId,
+      host: new URL(broken.productUrl).hostname,
+      source: 'api',
+      kind: 'deploy',
+      summary: 'Deployed theme v42',
+      occurredAt: new Date(Date.now() - 60_000),
+    });
     const first = await runOnce(monitor.id, 1);
     expect(first.status).toBe('failed');
     expect(first.failedStep).toBe('find_add_to_cart');
@@ -119,12 +129,18 @@ describe.skipIf(!services.available)('worker end to end (Postgres + Redis + Chro
     expect(webhook.body).toMatchObject({
       kind: 'failure',
       monitor: { id: monitor.id },
-      run: { id: first.id },
+      run: {
+        id: first.id,
+        recentChanges: [expect.objectContaining({ summary: 'Deployed theme v42' })],
+      },
     });
     expect(webhook.headers[SIGNATURE_HEADER]).toBe(signBody(JSON.stringify(webhook.body), secret));
     expect(
       (afterFailure.find((h) => h.path === '/slack')!.body as { text: string }).text,
     ).toContain('Checkout journey failing: Fixture tee');
+    expect(
+      (afterFailure.find((h) => h.path === '/slack')!.body as { text: string }).text,
+    ).toContain('Deployed theme v42');
 
     // Still broken: a second failed run must not alert again.
     const second = await runOnce(monitor.id, 2);

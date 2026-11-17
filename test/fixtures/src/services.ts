@@ -70,7 +70,7 @@ export async function truncateAll(databaseUrl: string): Promise<void> {
   await client.connect();
   try {
     await client.query(
-      'truncate table alert_deliveries, runs, monitor_state, monitors, api_keys cascade',
+      'truncate table alert_deliveries, runs, monitor_state, monitors, api_keys, change_events, shopify_shops cascade',
     );
   } finally {
     await client.end();

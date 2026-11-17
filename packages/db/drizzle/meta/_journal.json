@@ -36,6 +36,13 @@
       "when": 1794233732223,
       "tag": "0004_workspaces",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794885662639,
+      "tag": "0005_change_events",
+      "breakpoints": true
     }
   ]
 }

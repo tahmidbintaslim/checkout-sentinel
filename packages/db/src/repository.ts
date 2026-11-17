@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm';
 import type {
   AlertChannel,
   AlertChannelPatch,
@@ -11,11 +11,15 @@ import {
   DEFAULT_WORKSPACE,
   alertDeliveries,
   apiKeys,
+  changeEvents,
+  shopifyShops,
   monitorState,
   monitors,
   runs,
   type AlertDeliveryRow,
   type ApiKeyRow,
+  type ChangeEventRow,
+  type ShopifyShopRow,
   type MonitorRow,
   type MonitorStateRow,
   type RunRow,
@@ -618,5 +622,86 @@ export class ApiKeyRepository {
       .from(apiKeys)
       .where(eq(apiKeys.tokenHash, hashKey(key)));
     return row?.workspaceId ?? null;
+  }
+}
+
+export interface NewChangeEvent {
+  workspaceId: string;
+  host: string;
+  source: 'shopify' | 'wordpress' | 'api';
+  kind: string;
+  summary: string;
+  occurredAt: Date;
+  externalId?: string | undefined;
+}
+
+export class ChangeEventRepository {
+  constructor(private readonly db: Database) {}
+
+  /** Records an event; false when the same source already sent this externalId. */
+  async add(event: NewChangeEvent): Promise<boolean> {
+    const rows = await this.db
+      .insert(changeEvents)
+      .values({ ...event, host: event.host.toLowerCase(), externalId: event.externalId ?? null })
+      .onConflictDoNothing()
+      .returning({ id: changeEvents.id });
+    return rows.length > 0;
+  }
+
+  /** A store's events, newest first, optionally only those at or before `until`. */
+  async listForStore(
+    workspaceId: string,
+    host: string,
+    options: { limit: number; since?: Date; until?: Date },
+  ): Promise<ChangeEventRow[]> {
+    return this.db
+      .select()
+      .from(changeEvents)
+      .where(
+        and(
+          eq(changeEvents.workspaceId, workspaceId),
+          eq(changeEvents.host, host.toLowerCase()),
+          options.since ? gte(changeEvents.occurredAt, options.since) : undefined,
+          options.until ? lte(changeEvents.occurredAt, options.until) : undefined,
+        ),
+      )
+      .orderBy(desc(changeEvents.occurredAt))
+      .limit(options.limit);
+  }
+
+  async shopifyShop(shopDomain: string): Promise<ShopifyShopRow | null> {
+    const [row] = await this.db
+      .select()
+      .from(shopifyShops)
+      .where(eq(shopifyShops.shopDomain, shopDomain.toLowerCase()));
+    return row ?? null;
+  }
+
+  /** Links a shop to a workspace and store host; the install flow calls it after OAuth. */
+  async linkShopifyShop(shopDomain: string, workspaceId: string, host: string): Promise<void> {
+    const values = { shopDomain: shopDomain.toLowerCase(), workspaceId, host: host.toLowerCase() };
+    await this.db
+      .insert(shopifyShops)
+      .values(values)
+      .onConflictDoUpdate({ target: shopifyShops.shopDomain, set: values });
+  }
+
+  /** shop/redact: forget the shop and everything it reported. */
+  async forgetShopifyShop(shopDomain: string): Promise<void> {
+    const shop = await this.shopifyShop(shopDomain);
+    await this.db.transaction(async (tx) => {
+      if (shop) {
+        await tx
+          .delete(changeEvents)
+          .where(
+            and(
+              eq(changeEvents.workspaceId, shop.workspaceId),
+              eq(changeEvents.host, shop.host),
+              eq(changeEvents.source, 'shopify'),
+            ),
+          );
+      }
+      await tx.delete(shopifyShops).where(eq(shopifyShops.shopDomain, shopDomain.toLowerCase()));
+    });
   }
 }

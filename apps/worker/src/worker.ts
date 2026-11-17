@@ -4,6 +4,7 @@ import { pino, type Logger } from 'pino';
 import { TargetGuard, targetPolicyFromEnv, type RunResult } from '@checkout-sentinel/core';
 import {
   AlertDeliveryRepository,
+  ChangeEventRepository,
   MonitorRepository,
   RunRepository,
   StateRepository,
@@ -75,6 +76,7 @@ export async function startWorker(config: WorkerConfig, logger?: Logger): Promis
     runs,
     state: new StateRepository(db.db),
     deliveries: new AlertDeliveryRepository(db.db),
+    changes: new ChangeEventRepository(db.db),
     lock: new StoreLock(redis, config.PER_STORE_CONCURRENCY, STORE_LOCK_TTL_MS),
     browsers,
     metrics,

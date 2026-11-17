@@ -6,6 +6,8 @@ export { DEFAULT_WORKSPACE } from './schema.js';
 export type {
   AlertDeliveryRow,
   ApiKeyRow,
+  ChangeEventRow,
+  ShopifyShopRow,
   MonitorRow,
   MonitorStateRow,
   NewMonitorRow,

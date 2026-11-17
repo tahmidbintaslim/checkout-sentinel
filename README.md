@@ -249,6 +249,26 @@ within the caller's workspace only; another workspace's ids answer 404.
   every monitor created before workspaces existed (migration `0004_workspaces`).
 - The worker is unchanged: it runs every workspace's monitors.
 
+### What changed
+
+Checkouts usually break right after something changed: a theme published, an app or plugin
+updated, a deploy. Record those changes and every failure or tracking alert lists the ones from
+the 24 hours before the run, newest first ("Changed on the store shortly before: ..."). Each
+monitor's page shows its store's timeline.
+
+- **Any source:** `POST /api/changes` with an API key, for example from a deploy pipeline:
+  `{"store": "https://shop.example", "kind": "deploy", "summary": "Deployed v42"}`. Changes
+  belong to a store host and a workspace; `externalId` makes a resend count once.
+- **WordPress / WooCommerce:** the plugin in `integrations/wordpress/checkout-sentinel` reports
+  plugins installed, updated, activated or deactivated, theme installs, updates and switches,
+  and WordPress updates. Install it, then enter the API address and an API key under
+  Settings > Checkout Sentinel. It sends names, versions and the site address only.
+- **Shopify:** `POST /api/webhooks/shopify` takes the app's webhooks, verified with
+  `SHOPIFY_API_SECRET`. Theme publishes and edits to the live theme become changes; the
+  mandatory privacy topics are answered (no customer data is stored; `shop/redact` deletes the
+  shop's link and events). Only shops linked to a workspace by the app's install flow are
+  recorded; webhooks from any other shop are acknowledged and dropped.
+
 ### Public scanner
 
 `SCANNER_ENABLED=true` opens a free scan page at `/scan`: anyone pastes a product URL and gets
