@@ -23,6 +23,9 @@ All notable changes are recorded here. The format follows
   `0003_expect_tracking` adds `monitors.expect_tracking`, `monitor_state.tracking_missing` and the
   `tracking` alert kind.
 
+- WordPress plugin (`integrations/wordpress/checkout-sentinel`): reports plugin, theme and
+  WordPress changes to `POST /api/changes` with a workspace API key; settings page with a
+  connection test and the last report's outcome.
 - What changed: `POST /api/changes` records a change on a store (deploy, theme, app or plugin
   update) for the caller's workspace, `GET /api/monitors/:id/changes` lists a store's changes,
   and the monitor page shows them. Failure and tracking alerts (Slack text and the webhook's
