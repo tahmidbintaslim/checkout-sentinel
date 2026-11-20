@@ -40,7 +40,7 @@ Billing).
 
 | Plan    | Price / month | Stores | Product URLs | Checks every | History | Includes                                  |
 | ------- | ------------- | ------ | ------------ | ------------ | ------- | ----------------------------------------- |
-| Free    | $0            | 1      | 1            | 60 min       | 7 days  | Checkout checks, email and Slack alerts   |
+| Free    | $0            | 1      | 1            | 60 min       | 7 days  | Checkout checks, Slack and webhook alerts |
 | Starter | $29           | 1      | 3            | 15 min       | 30 days | + Tracking checks, what changed, webhooks |
 | Growth  | $79           | 5      | 15           | 5 min        | 90 days | + Priority alerts, API keys               |
 | Agency  | $199          | 25     | 75           | 5 min        | 90 days | + Team workspaces, client reports (later) |
