@@ -1,0 +1,32 @@
+# Production overlay for one server: HTTPS through Caddy, the API reachable only through it.
+#   DOMAIN=app.example.com docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+# See docs/deploy.md.
+services:
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to the public host name, for example app.example.com}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      # Relative paths resolve from the first compose file, the repository root.
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    # Only Caddy talks to the API; nothing listens on the host's port 3000.
+    ports: !reset []
+    environment:
+      # Caddy is one proxy hop: per-address limits (the scanner) must see the client, not Caddy.
+      TRUST_PROXY_HOPS: '1'
+
+volumes:
+  caddy-data:
+  caddy-config:
