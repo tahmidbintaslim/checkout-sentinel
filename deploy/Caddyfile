@@ -1,0 +1,6 @@
+# HTTPS in front of the API and dashboard. Caddy gets and renews the certificate for $DOMAIN
+# on its own; the DNS A/AAAA record must point at this server first.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:3000
+}

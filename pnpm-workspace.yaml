@@ -10,3 +10,8 @@ allowBuilds:
   msgpackr-extract: false
   # Install-time analytics in swagger-ui-dist; not needed.
   '@scarf/scarf': false
+
+# Security fixes for transitive dependencies whose parents have not released one yet.
+overrides:
+  # GHSA-67mh-4wv8-2f99 (DoS); reaches the API through @nestjs/platform-express.
+  multer: '>=2.5.0 <3'

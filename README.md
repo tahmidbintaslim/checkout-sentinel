@@ -165,6 +165,8 @@ Timings above come from a local fixture server and say nothing about real stores
 
 ## Quickstart: self-hosted with docker compose
 
+For a public server with HTTPS, see [docs/deploy.md](docs/deploy.md).
+
 ```bash
 cp .env.example .env          # set POSTGRES_PASSWORD and API_TOKEN
 docker compose up -d --build --wait
